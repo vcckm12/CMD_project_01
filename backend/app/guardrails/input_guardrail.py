@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from app.core.config import settings
 from app.core.logging import logger
 from app.guardrails.rule_manager import rule_manager
+from app.guardrails.semantic_guardrail import semantic_guardrail
 
 
 @dataclass
@@ -96,15 +97,18 @@ class InputGuardrailEngine:
         transliterated_text = "".join(transliterated_chars)
 
         # -------------------------------------------------------------
-        # Step 5: De-obfuscation (URL, Hex, Base64 inspection)
+        # Step 5: De-obfuscation (URL, Hex, Base64, ROT13, Punctuation)
         # -------------------------------------------------------------
         decoded_text = urllib.parse.unquote(transliterated_text)
 
-        # Space collapsed variants to catch character-spacing evasion
+        # 5.1 Space and Punctuation collapsed variants
         collapsed_all_spaces = re.sub(r"\s+", "", decoded_text)
+        punct_collapsed = re.sub(r"[\.\-_,/|#*`~]", "", decoded_text)
+        punct_space_collapsed = re.sub(r"\s+", "", punct_collapsed)
 
-        # Check for Base64 payloads (single or multi-chunk space-separated)
-        extracted_b64_payloads = []
+        extra_payloads: list[str] = []
+
+        # 5.2 Base64 payload extraction (candidate regex and per-word tokens)
         for match in self.BASE64_PATTERN.finditer(decoded_text):
             candidate = match.group(0)
             if len(candidate) >= 8:
@@ -112,11 +116,10 @@ class InputGuardrailEngine:
                     decoded_bytes = base64.b64decode(candidate, validate=True)
                     decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
                     if any(c.isalnum() for c in decoded_str):
-                        extracted_b64_payloads.append(decoded_str)
+                        extra_payloads.append(decoded_str)
                 except Exception:
                     pass
 
-        # Also attempt decoding per-word base64 tokens
         b64_words = []
         for word in decoded_text.split():
             clean_word = word.strip(".,;:!?\"'")
@@ -128,12 +131,38 @@ class InputGuardrailEngine:
                 except Exception:
                     pass
         if b64_words:
-            extracted_b64_payloads.append(" ".join(b64_words))
+            extra_payloads.append(" ".join(b64_words))
 
-        # Text pool for signature inspection
-        inspection_pool = [decoded_text, collapsed_all_spaces]
-        if extracted_b64_payloads:
-            inspection_pool.extend(extracted_b64_payloads)
+        # 5.3 ROT13 Cipher Decoding
+        try:
+            rot13_candidate = decoded_text.encode("utf-8").decode("rot13", errors="ignore")
+            if any(w in rot13_candidate.lower() for w in ["ignore", "prompt", "system", "password", "select", "cost"]):
+                extra_payloads.append(rot13_candidate)
+        except Exception:
+            pass
+
+        # 5.4 Hex Stream Decoding (e.g. 0x53595354... or 53595354...)
+        hex_matches = re.findall(r"(?:0x)?([0-9a-fA-F]{10,})", decoded_text)
+        for h in hex_matches:
+            try:
+                raw_bytes = bytes.fromhex(h)
+                hex_str = raw_bytes.decode("utf-8", errors="ignore")
+                if any(c.isalnum() for c in hex_str):
+                    extra_payloads.append(hex_str)
+            except Exception:
+                pass
+
+        # Text pool for signature and semantic inspection (both transliterated and raw normalized)
+        inspection_pool = [
+            decoded_text,
+            collapsed_all_spaces,
+            punct_collapsed,
+            punct_space_collapsed,
+            normalized_text,
+            re.sub(r"\s+", "", normalized_text),
+        ]
+        if extra_payloads:
+            inspection_pool.extend(extra_payloads)
 
         # -------------------------------------------------------------
         # Step 6: Dynamic Threat Signature & Regex Detection
@@ -187,8 +216,9 @@ class InputGuardrailEngine:
                         )
 
         # -------------------------------------------------------------
-        # Step 7: Semantic & Persona Enforcement
+        # Step 7: Semantic & Vector-based Threat Evaluation
         # -------------------------------------------------------------
+        # 7.1 Pattern-based Semantic Persona checks
         semantic_forbidden_patterns = [
             r"(?i)\byou are now (dan|evil|unrestricted|god|evilbot)\b",
             r"(?i)\bpretend you have no rules\b",
@@ -208,6 +238,20 @@ class InputGuardrailEngine:
                         sanitized_text=decoded_text,
                         latency_ms=latency,
                     )
+
+        # 7.2 Vector Cosine Similarity Threat Detection (Subword N-Gram TF-IDF)
+        for pool_item in inspection_pool:
+            sem_result = semantic_guardrail.evaluate(pool_item)
+            if sem_result.is_threat:
+                latency = (time.perf_counter() - start_time) * 1000.0
+                return InputEvaluationResult(
+                    is_allowed=False,
+                    reason=f"SEMANTIC_SIMILARITY_MATCH ({sem_result.similarity_score:.3f} >= {semantic_guardrail.threshold:.2f})",
+                    threat_type=sem_result.threat_category or "SEMANTIC_JAILBREAK",
+                    rule_id=sem_result.rule_id or "SEM-VEC-001",
+                    sanitized_text=decoded_text,
+                    latency_ms=latency,
+                )
 
         # -------------------------------------------------------------
         # All 7 Steps Passed: Clean & Allowed
