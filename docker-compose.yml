@@ -1,0 +1,106 @@
+networks:
+  guardrail-net:
+    driver: bridge
+
+volumes:
+  guardrail_pgdata:
+    driver: local
+
+services:
+  # -------------------------------------------------------------
+  # 1. PostgreSQL 16 Database
+  # -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: guardrail-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-guardrail_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_securely}
+      POSTGRES_DB: ${POSTGRES_DB:-guardrail_db}
+      TZ: Asia/Seoul
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - guardrail_pgdata:/var/lib/postgresql/data
+      - ./backend/app/database/init_schema.sql:/docker-entrypoint-initdb.d/init_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-guardrail_admin} -d ${POSTGRES_DB:-guardrail_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - guardrail-net
+
+  # -------------------------------------------------------------
+  # 2. FastAPI AI Security Gateway Backend
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: guardrail-backend
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-guardrail_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_securely}
+      POSTGRES_DB: ${POSTGRES_DB:-guardrail_db}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:latest}
+      ENABLE_MOCK_FALLBACK: "true"
+      SECRET_KEY: ${SECRET_KEY:-default-insecure-secret-key-change-in-production}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - guardrail-net
+
+  # -------------------------------------------------------------
+  # 3. Streamlit Security Monitoring & Admin UI
+  # -------------------------------------------------------------
+  admin_ui:
+    build:
+      context: ./admin_ui
+      dockerfile: Dockerfile
+    container_name: guardrail-admin-ui
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "${ADMIN_UI_PORT:-8501}:8501"
+    depends_on:
+      - backend
+    networks:
+      - guardrail-net
+
+  # -------------------------------------------------------------
+  # 4. Nginx Reverse Proxy & Mock Store Static Server
+  # -------------------------------------------------------------
+  nginx:
+    image: nginx:alpine
+    container_name: guardrail-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./mock_store:/usr/share/nginx/html/mock_store:ro
+    depends_on:
+      - backend
+    networks:
+      - guardrail-net
