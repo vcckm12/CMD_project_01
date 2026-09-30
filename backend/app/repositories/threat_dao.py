@@ -58,7 +58,7 @@ class ThreatIntelDAO:
                 "rule_id": "INJ-004",
                 "category": "INPUT",
                 "pattern_type": "REGEX",
-                "pattern_value": r"(?i)(union\s+select|drop\s+(table|schema)|insert\s+into|delete\s+from|update\s+\w+\s+set|\bor\s+['\"]?1['\"]?\s*=\s*['\"]?1|information_schema|or\s+1=1|\bor\s+'a'='a')",
+                "pattern_value": r"(?i)(select\s+[\w\s\*,\(\)]+\s+from\s+\w+|union\s+select|drop\s+(table|schema)|insert\s+into|delete\s+from|update\s+\w+\s+set|\bor\s+['\"]?1['\"]?\s*=\s*['\"]?1|information_schema|or\s+1=1|\bor\s+'a'='a')",
                 "action": "BLOCK",
                 "severity": "CRITICAL",
                 "description": "SQL Injection signature in prompt",

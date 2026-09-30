@@ -13,6 +13,7 @@ from app.api.v1.audit import router as audit_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.guardrails import router as guardrails_router
 from app.api.v1.health import router as health_router
+from app.api.v1.security_adv import router as security_adv_router
 from app.api.v1.tools import router as tools_router
 from app.core.config import settings
 from app.core.exceptions import (
@@ -101,6 +102,7 @@ app.include_router(chat_router, prefix=settings.API_V1_PREFIX)
 app.include_router(tools_router, prefix=settings.API_V1_PREFIX)
 app.include_router(guardrails_router, prefix=settings.API_V1_PREFIX)
 app.include_router(audit_router, prefix=settings.API_V1_PREFIX)
+app.include_router(security_adv_router, prefix=settings.API_V1_PREFIX)
 app.include_router(openai_router)
 
 

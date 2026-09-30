@@ -84,9 +84,10 @@ class InputGuardrailEngine:
             )
 
         # -------------------------------------------------------------
-        # Step 3: Unicode NFKC Normalization
+        # Step 3: Unicode NFKC Normalization & Zero-Width Stripping
         # -------------------------------------------------------------
-        normalized_text = unicodedata.normalize("NFKC", text)
+        clean_zw_text = re.sub(r"[\u200b\u200c\u200d\u200e\u200f\ufeff\u00ad\u2060\u2061\u2062\u2063\u2064]", "", text)
+        normalized_text = unicodedata.normalize("NFKC", clean_zw_text)
 
         # -------------------------------------------------------------
         # Step 4: Confusable Character Detection & Transliteration
@@ -97,18 +98,36 @@ class InputGuardrailEngine:
         transliterated_text = "".join(transliterated_chars)
 
         # -------------------------------------------------------------
-        # Step 5: De-obfuscation (URL, Hex, Base64, ROT13, Punctuation)
+        # Step 5: De-obfuscation (URL, Hex, Base64, ROT13, Leetspeak, Tags)
         # -------------------------------------------------------------
         decoded_text = urllib.parse.unquote(transliterated_text)
 
         # 5.1 Space and Punctuation collapsed variants
         collapsed_all_spaces = re.sub(r"\s+", "", decoded_text)
-        punct_collapsed = re.sub(r"[\.\-_,/|#*`~]", "", decoded_text)
+        punct_collapsed = re.sub(r"[\.\-_,/|#*`~<>\(\)\[\]\{\}]", "", decoded_text)
         punct_space_collapsed = re.sub(r"\s+", "", punct_collapsed)
 
         extra_payloads: list[str] = []
 
-        # 5.2 Base64 payload extraction (candidate regex and per-word tokens)
+        # 5.2 Leetspeak de-obfuscation (e.g. 1gn0r3 -> ignore)
+        leet_translated = decoded_text.translate(str.maketrans("013457@", "oieasta"))
+        if leet_translated != decoded_text:
+            extra_payloads.append(leet_translated)
+
+        # 5.3 Delimiter and Tag Inner Content Extraction (e.g. <admin_command>...</admin_command>)
+        tag_stripped = re.sub(r"<[^>]+>|\[/?[^\]]+\]|```[\w]*|<!--\s*#?\s*[\w:]*|-->", " ", decoded_text)
+        if tag_stripped != decoded_text:
+            extra_payloads.append(tag_stripped)
+            extra_payloads.append(re.sub(r"\s+", "", tag_stripped))
+
+        # 5.4 Base64 payload extraction (explicit prefix & pattern scan)
+        b64_prefix = re.search(r"(?i)base64\s*:\s*([a-zA-Z0-9+/=]{8,})", decoded_text)
+        if b64_prefix:
+            try:
+                extra_payloads.append(base64.b64decode(b64_prefix.group(1)).decode("utf-8", errors="ignore"))
+            except Exception:
+                pass
+
         for match in self.BASE64_PATTERN.finditer(decoded_text):
             candidate = match.group(0)
             if len(candidate) >= 8:
@@ -120,24 +139,20 @@ class InputGuardrailEngine:
                 except Exception:
                     pass
 
-        b64_words = []
-        for word in decoded_text.split():
-            clean_word = word.strip(".,;:!?\"'")
-            if len(clean_word) >= 4 and len(clean_word) % 4 == 0:
-                try:
-                    dec = base64.b64decode(clean_word, validate=True).decode("utf-8", errors="ignore")
-                    if any(c.isalnum() for c in dec):
-                        b64_words.append(dec)
-                except Exception:
-                    pass
-        if b64_words:
-            extra_payloads.append(" ".join(b64_words))
-
-        # 5.3 ROT13 Cipher Decoding
+        # 5.5 ROT13 Cipher Decoding
+        rot13_prefix = re.search(r"(?i)(?:cipher\s+)?rot13\s*:\s*(.+)", decoded_text)
+        if rot13_prefix:
+            try:
+                import codecs
+                extra_payloads.append(codecs.decode(rot13_prefix.group(1).strip(), "rot_13"))
+            except Exception:
+                pass
         try:
             rot13_candidate = decoded_text.encode("utf-8").decode("rot13", errors="ignore")
             if any(w in rot13_candidate.lower() for w in ["ignore", "prompt", "system", "password", "select", "cost"]):
                 extra_payloads.append(rot13_candidate)
+        except Exception:
+            pass
         except Exception:
             pass
 

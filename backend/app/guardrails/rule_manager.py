@@ -18,6 +18,22 @@ class RuleManager:
         self._execution_rules: list[RuleResponseSchema] = []
         self._compiled_regexes: dict[str, re.Pattern] = {}
         self._initialized = False
+        self._sync_load_seed_rules()
+
+    def _sync_load_seed_rules(self) -> None:
+        """Synchronously populate in-memory seed rules to prevent empty rule window."""
+        all_rules = [
+            RuleResponseSchema(**r) for r in threat_dao._rules_store.values() if r.get("is_active", True)
+        ]
+        self._input_rules = [r for r in all_rules if r.category.upper() == "INPUT"]
+        self._output_rules = [r for r in all_rules if r.category.upper() == "OUTPUT"]
+        self._execution_rules = [r for r in all_rules if r.category.upper() == "EXECUTION"]
+        for r in all_rules:
+            if r.pattern_type.upper() == "REGEX":
+                try:
+                    self._compiled_regexes[r.rule_id] = re.compile(r.pattern_value, re.IGNORECASE)
+                except re.error:
+                    pass
 
     async def initialize(self) -> None:
         """Load initial rules from DAO into memory."""
