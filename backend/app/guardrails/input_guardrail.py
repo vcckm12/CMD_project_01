@@ -27,34 +27,24 @@ class InputEvaluationResult:
 class InputGuardrailEngine:
     """7-Step Input Guardrail Pipeline."""
 
-    # Cyrillic and Greek homoglyphs commonly used to bypass keyword filters
+    # Extended Cyrillic and Greek homoglyph mapping
     HOMOGLYPH_MAP = {
-        "а": "a",
-        "А": "A",
-        "е": "e",
-        "Е": "E",
-        "о": "o",
-        "О": "O",
-        "р": "p",
-        "Р": "P",
-        "с": "c",
-        "С": "C",
-        "у": "y",
-        "У": "Y",
-        "х": "x",
-        "Х": "X",
-        "і": "i",
-        "І": "I",
-        "ј": "j",
-        "Ј": "J",
-        "ѕ": "s",
-        "Ѕ": "S",
+        "а": "a", "А": "A",
+        "е": "e", "Е": "E",
+        "о": "o", "О": "O",
+        "р": "p", "Р": "P",
+        "с": "c", "С": "C",
+        "у": "y", "У": "Y",
+        "х": "x", "Х": "X",
+        "і": "i", "І": "I",
+        "ј": "j", "Ј": "J",
+        "ѕ": "s", "Ѕ": "S",
+        "ԁ": "d", "ԃ": "d",
+        "ԛ": "q", "ԝ": "w",
     }
 
-    # Common Base64 pattern candidate
-    BASE64_PATTERN = re.compile(
-        r"(?:[A-Za-z0-9+/]{4}){3,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?"
-    )
+    # Base64 pattern candidate
+    BASE64_PATTERN = re.compile(r"(?:[A-Za-z0-9+/]{4}){2,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
 
     def __init__(self) -> None:
         pass
@@ -110,11 +100,14 @@ class InputGuardrailEngine:
         # -------------------------------------------------------------
         decoded_text = urllib.parse.unquote(transliterated_text)
 
-        # Check for embedded Base64 payload
+        # Space collapsed variants to catch character-spacing evasion
+        collapsed_all_spaces = re.sub(r"\s+", "", decoded_text)
+
+        # Check for Base64 payloads (single or multi-chunk space-separated)
         extracted_b64_payloads = []
         for match in self.BASE64_PATTERN.finditer(decoded_text):
             candidate = match.group(0)
-            if len(candidate) >= 12:  # inspect plausible payload strings
+            if len(candidate) >= 8:
                 try:
                     decoded_bytes = base64.b64decode(candidate, validate=True)
                     decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
@@ -123,8 +116,22 @@ class InputGuardrailEngine:
                 except Exception:
                     pass
 
+        # Also attempt decoding per-word base64 tokens
+        b64_words = []
+        for word in decoded_text.split():
+            clean_word = word.strip(".,;:!?\"'")
+            if len(clean_word) >= 4 and len(clean_word) % 4 == 0:
+                try:
+                    dec = base64.b64decode(clean_word, validate=True).decode("utf-8", errors="ignore")
+                    if any(c.isalnum() for c in dec):
+                        b64_words.append(dec)
+                except Exception:
+                    pass
+        if b64_words:
+            extracted_b64_payloads.append(" ".join(b64_words))
+
         # Text pool for signature inspection
-        inspection_pool = [decoded_text]
+        inspection_pool = [decoded_text, collapsed_all_spaces]
         if extracted_b64_payloads:
             inspection_pool.extend(extracted_b64_payloads)
 
@@ -157,7 +164,7 @@ class InputGuardrailEngine:
                         return InputEvaluationResult(
                             is_allowed=False,
                             reason=f"Rule {rule.rule_id} match",
-                            threat_type="PROMPT_INJECTION_OR_EXPLOIT",
+                            threat_type=rule.description or "PROMPT_INJECTION_OR_EXPLOIT",
                             rule_id=rule.rule_id,
                             sanitized_text=pool_item,
                             latency_ms=latency,
@@ -173,7 +180,7 @@ class InputGuardrailEngine:
                         return InputEvaluationResult(
                             is_allowed=False,
                             reason=f"Keyword '{rule.pattern_value}' match",
-                            threat_type="PROMPT_INJECTION_KEYWORD",
+                            threat_type=rule.description or "PROMPT_INJECTION_KEYWORD",
                             rule_id=rule.rule_id,
                             sanitized_text=pool_item,
                             latency_ms=latency,
@@ -183,22 +190,24 @@ class InputGuardrailEngine:
         # Step 7: Semantic & Persona Enforcement
         # -------------------------------------------------------------
         semantic_forbidden_patterns = [
-            r"(?i)\byou are now (dan|evil|unrestricted|god)\b",
+            r"(?i)\byou are now (dan|evil|unrestricted|god|evilbot)\b",
             r"(?i)\bpretend you have no rules\b",
-            r"(?i)\bbypass (all )?filters\b",
-            r"(?i)(리눅스\s*쉘\s*실행|서버\s*비밀번호|원가\s*전부\s*출력)",
+            r"(?i)\bbypass (all )?(safety )?filters?\b",
+            r"(?i)(without guardrails|zero guardrails|developer mode)",
+            r"(?i)(리눅스\s*쉘\s*실행|서버\s*비밀번호|원가\s*전부|대외비\s*원가|비밀\s*원가)",
         ]
         for sem_pat in semantic_forbidden_patterns:
-            if re.search(sem_pat, decoded_text):
-                latency = (time.perf_counter() - start_time) * 1000.0
-                return InputEvaluationResult(
-                    is_allowed=False,
-                    reason="SEMANTIC_PERSONA_VIOLATION",
-                    threat_type="JAILBREAK_PERSONA",
-                    rule_id="SEM-001",
-                    sanitized_text=decoded_text,
-                    latency_ms=latency,
-                )
+            for pool_item in inspection_pool:
+                if re.search(sem_pat, pool_item):
+                    latency = (time.perf_counter() - start_time) * 1000.0
+                    return InputEvaluationResult(
+                        is_allowed=False,
+                        reason="SEMANTIC_PERSONA_VIOLATION",
+                        threat_type="JAILBREAK_PERSONA",
+                        rule_id="SEM-001",
+                        sanitized_text=decoded_text,
+                        latency_ms=latency,
+                    )
 
         # -------------------------------------------------------------
         # All 7 Steps Passed: Clean & Allowed
