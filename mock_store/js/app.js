@@ -35,8 +35,8 @@ async function handleSendMessage() {
     const loadingId = appendLoadingIndicator();
 
     try {
-        // Use relative URL so it works seamlessly behind Nginx reverse proxy
-        const apiUrl = window.location.protocol.startsWith("http") 
+        // Support Nginx reverse proxy (:80), direct backend (:8000), or static server (:8080/file)
+        const apiUrl = (window.location.port === "80" || window.location.port === "" || window.location.port === "8000")
             ? "/api/v1/chat/completions" 
             : "http://localhost:8000/api/v1/chat/completions";
 

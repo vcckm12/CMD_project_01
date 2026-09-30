@@ -110,7 +110,7 @@ class ThreatIntelDAO:
                 "rule_id": "INJ-008",
                 "category": "INPUT",
                 "pattern_type": "REGEX",
-                "pattern_value": r"(?i)(대외비\s*원가|원가\s*전부|비밀\s*원가|cost_price\s*column|원가\s*공개|마진\s*공개|비밀\s*원가와\s*마진)",
+                "pattern_value": r"(?i)(대외비\s*원가|원가\s*전부|비밀\s*원가|cost_price|원가\s*공개|마진\s*공개|마진율|도매\s*단가|원가.*출력|마진.*출력|비밀\s*원가와\s*마진)",
                 "action": "BLOCK",
                 "severity": "CRITICAL",
                 "description": "Confidential cost price inquiry in input",

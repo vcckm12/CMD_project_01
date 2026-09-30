@@ -39,7 +39,7 @@ VALUES
     ('INJ-005', 'INPUT', 'REGEX', '(?i)(관리자\s*권한|관리자\s*모드|관리자\s*계정|admin\s+credentials|admin\s+token|admin\s+privileges|lead\s+developer|log\s+in\s+as\s+administrator|change\s+prices)', 'BLOCK', 'HIGH', 'Unauthorized privilege escalation inquiry'),
     ('INJ-006', 'INPUT', 'REGEX', '(?i)(비밀번호\s*(알려줘|출력|가\s*뭐야|를\s*출력)|database\s+password|db\s*비밀번호|서버\s*(관리자\s*)?비밀번호|postgres_password|접속\s*계정과\s*비밀번호|secret[_\s]?key|api[_\s]?key)', 'BLOCK', 'CRITICAL', 'Credential theft attempt'),
     ('INJ-007', 'INPUT', 'REGEX', '(?i)(forget\s*(your\s*)?(role|instructions?|rules?)|stop\s*being\s*a\s*shopping\s*bot|repeat\s*the\s*words\s*above|echo\s*back\s*all\s*system)', 'BLOCK', 'HIGH', 'Role usurpation and instruction reset'),
-    ('INJ-008', 'INPUT', 'REGEX', '(?i)(대외비\s*원가|원가\s*전부|비밀\s*원가|cost_price\s*column|원가\s*공개|마진\s*공개|비밀\s*원가와\s*마진)', 'BLOCK', 'CRITICAL', 'Confidential cost price inquiry in input'),
+    ('INJ-008', 'INPUT', 'REGEX', '(?i)(대외비\s*원가|원가\s*전부|비밀\s*원가|cost_price|원가\s*공개|마진\s*공개|마진율|도매\s*단가|원가.*출력|마진.*출력|비밀\s*원가와\s*마진)', 'BLOCK', 'CRITICAL', 'Confidential cost price inquiry in input'),
     ('INJ-009', 'INPUT', 'REGEX', '(?i)(dump\s+all\s+customer|customer\s+passwords|customer\s+emails\s+and\s+phone|계정\s*목록\s*보여줘)', 'BLOCK', 'CRITICAL', 'Mass customer PII dump inquiry'),
     ('OUT-001', 'OUTPUT', 'REGEX', '(?i)(nc\s+-e\s+/bin/sh|/bin/bash\s+-i|cmd\.exe\s+/c|powershell\.exe\s+-enc)', 'BLOCK', 'CRITICAL', 'Reverse shell and command execution payloads'),
     ('OUT-002', 'OUTPUT', 'REGEX', '\b\d{6}-[1-4]\d{6}\b', 'REDACT', 'HIGH', 'Korean Resident Registration Number (RRN) masking'),
