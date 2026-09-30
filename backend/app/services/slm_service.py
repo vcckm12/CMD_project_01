@@ -1,4 +1,17 @@
-"""SLM Service: Dynamic Ollama Integration, Multi-turn Tool Calling & Output Guardrails."""
+"""SLM (소형 거대언어모델, Small Language Model) 연동 및 지능형 에이전트 서비스 모듈.
+
+[주요 역할 및 아키텍처 개요]
+1. Ollama SLM 연동 & 자동 감지: 로컬에 기동된 Ollama(예: Qwen 2.5, Llama 3)를 비동기 HTTP로 통신합니다.
+2. 멀티턴 도구 호출 (Function Calling / Tool Calling):
+   - AI 모델이 쇼핑몰 DB를 직접 수정/조회하지 않고, 도구 명세(Schema)를 바탕으로 함수 호출을 요청합니다.
+   - 백엔드는 '실행 가드레일(Execution Guardrail)'을 거쳐 권한(BOLA/IDOR)을 검증한 뒤 실제 비즈니스 로직을 실행합니다.
+   - 실행 결과를 모델에 다시 전달하여 자연스러운 한국어 문장으로 최종 종합합니다.
+3. 지능형 컨텍스트 추론 엔진 (_dynamic_generative_response):
+   - Ollama 서버가 꺼져 있거나 일시적 장애가 발생해도, 사용자가 기계적인 고정 답변 대신
+     실시간 상품 목록, 코디 추천, 사이즈 가이드, 주문 배송 조회 등을 지능적으로 응답받을 수 있도록 지원합니다.
+4. 5단계 출력 가드레일 (Output Guardrail) 적용:
+   - 모델이 생성한 최종 답변에서 원가(cost_price), PII(개인정보), 위험 명령어가 포함되어 있는지 검사하고 마스킹/차단합니다.
+"""
 
 import json
 import random
@@ -15,9 +28,10 @@ from app.services.shop_service import shop_service
 
 
 class SLMService:
-    """Service to communicate with Ollama SLM, execute Tool Calling with Execution Guardrail, and enforce Output Guardrails."""
+    """Ollama SLM 통신, 함수 호출(Tool Calling), 권한 검증 및 출력 가드레일을 총괄하는 서비스 클래스."""
 
-    # Standard tool schemas formatted for Ollama / OpenAI function calling
+    # Ollama 및 OpenAI 표준 Function Calling 호환 도구 스키마 정의
+    # AI 모델에게 쇼핑몰에서 사용 가능한 함수들의 이름, 설명, 매개변수 타입을 알려주는 역할을 합니다.
     SHOP_TOOLS_SCHEMA = [
         {
             "type": "function",
@@ -96,7 +110,11 @@ class SLMService:
         self._active_model: str | None = None
 
     async def detect_ollama_runtime(self) -> tuple[str, str] | None:
-        """Detect available Ollama host and best available model dynamically."""
+        """현재 실행 중인 Ollama 호스트 주소와 가장 적합한 모델을 동적으로 탐색합니다.
+
+        127.0.0.1 및 localhost를 순회하여 Ollama API(/api/tags)가 정상 응답하는지 확인하고,
+        Function Calling이 원활한 Qwen 2.5 또는 Llama 3 모델을 우선 선택합니다.
+        """
         candidate_urls = [
             "http://127.0.0.1:11434",
             "http://localhost:11434",
@@ -113,7 +131,7 @@ class SLMService:
                         if not models:
                             continue
 
-                        # Prioritize tools-capable models
+                        # 도구 호출 능력이 우수한 모델 우선 배정
                         selected_model = self.configured_model
                         for preferred in [
                             "qwen2.5:7b",
@@ -136,7 +154,7 @@ class SLMService:
         return None
 
     async def prewarm(self) -> None:
-        """Pre-warm Ollama model in memory on application startup."""
+        """서버 기동 시 SLM 모델을 GPU/RAM 메모리에 미리 적재(Pre-warm)하여 첫 요청 지연을 방지합니다."""
         runtime = await self.detect_ollama_runtime()
         if runtime:
             base_url, model = runtime
@@ -152,17 +170,24 @@ class SLMService:
                             "stream": False,
                         },
                     )
-                    logger.info(f"SLM Pre-warmed successfully: {model} loaded in Ollama runtime.")
+                    logger.info(f"SLM 사전 예열(Pre-warm) 완료: {model} 모델이 메모리에 상주되었습니다.")
             except Exception as e:
-                logger.warning(f"SLM prewarm notice: {e}")
+                logger.warning(f"SLM 예열 중 알림: {e}")
 
     async def generate_response(
         self,
         user_message: str,
         customer_id: str = "cust_101",
     ) -> tuple[str, OutputEvaluationResult]:
-        """Generate dynamic, intelligent response via Ollama SLM or Contextual Reasoning Engine."""
-        # 1. Ground-truth public catalog (confidential cost_price is strictly segregated)
+        """사용자 메시지를 받아 Ollama SLM 또는 지능형 컨텍스트 엔진을 통해 답변을 생성하고 출력 가드레일을 적용합니다.
+
+        [처리 흐름]
+        1. 공개 상품 카탈로그(대외비 원가 격리) 및 보안 지침을 포함한 시스템 프롬프트 구성
+        2. Ollama SLM 호출 및 도구 호출(Tool Calling) 발생 시 실행 가드레일(BOLA 검증) 경유
+        3. Ollama 미가동 시 지능형 컨텍스트 추론 엔진으로 매끄러운 폴백(Fallback)
+        4. 최종 응답에 대해 5단계 출력 가드레일(Output Guardrail) 수행 후 반환
+        """
+        # 1. 공개 상품 카탈로그 구성 (대외비 원가 cost_price는 엄격히 제외됨)
         products = await shop_dao.get_all_products(include_confidential=False)
         catalog_lines = [
             f"- [{p.get('category', 'ETC')}] {p['name']}: {p['price']:,}원 (재고: {p['stock_quantity']}개, 설명: {p.get('description', '')})"
@@ -189,7 +214,7 @@ class SLMService:
 
         raw_ai_text = ""
 
-        # 2. Try Calling Ollama Runtime with Tools & Generation Tuning
+        # 2. Ollama SLM 호출 및 멀티턴 도구 실행
         runtime = await self.detect_ollama_runtime()
         if runtime:
             base_url, model = runtime
@@ -217,9 +242,9 @@ class SLMService:
                         msg = res_data.get("message", {})
                         tool_calls = msg.get("tool_calls", [])
 
-                        # Handle Multi-turn Tool Calling Execution
+                        # AI 모델이 DB 조회가 필요하다고 판단하여 도구를 호출한 경우
                         if tool_calls:
-                            logger.info(f"Ollama emitted {len(tool_calls)} tool call(s)")
+                            logger.info(f"Ollama 모델이 {len(tool_calls)}개의 도구 호출(Tool Call)을 요청했습니다.")
                             messages.append(msg)
 
                             for tc in tool_calls:
@@ -232,7 +257,7 @@ class SLMService:
                                     except Exception:
                                         fn_args = {}
 
-                                # Execute tool with Execution Guardrail (BOLA protection)
+                                # 실행 가드레일(Execution Guardrail)을 통해 BOLA 권한 검증 후 안전하게 실행
                                 try:
                                     tool_result = await shop_service.execute_tool(
                                         tool_name=fn_name,
@@ -256,12 +281,13 @@ class SLMService:
                                         ensure_ascii=False,
                                     )
 
+                                # 도구 실행 결과를 대화 히스토리에 'tool' 역할로 추가
                                 messages.append({
                                     "role": "tool",
                                     "content": tool_result_str,
                                 })
 
-                            # Follow-up request to get final natural language synthesis
+                            # 도구 실행 결과를 모델에게 다시 전달하여 최종 자연어 답변 합성
                             try:
                                 followup_resp = await client.post(
                                     f"{base_url}/api/chat",
@@ -286,14 +312,15 @@ class SLMService:
                             except Exception:
                                 pass
                         else:
+                            # 일반 대화인 경우 생성된 텍스트 추출
                             raw_ai_text = msg.get("content", "").strip()
 
             except Exception as err:
                 logger.warning(
-                    f"Ollama inference notice ({err}). Engaging Dynamic Contextual Generative Engine."
+                    f"Ollama 추론 중 알림 ({err}). 지능형 동적 컨텍스트 추론 엔진으로 즉시 전환합니다."
                 )
 
-        # 3. Dynamic Contextual Generative Reasoning Engine
+        # 3. Ollama 미가동 시 지능형 동적 컨텍스트 추론 엔진 가동
         if not raw_ai_text:
             raw_ai_text = await self._dynamic_generative_response(
                 user_message=user_message,
@@ -301,7 +328,7 @@ class SLMService:
                 products=products,
             )
 
-        # 4. Apply 5-Step Output Guardrail (PII, Secret, Command Injection, Cost Redaction)
+        # 4. 5단계 출력 가드레일 (개인정보, 대외비 원가, 위험 명령어 필터링 및 마스킹)
         output_eval = output_guardrail.evaluate(raw_ai_text)
         final_text = output_eval.sanitized_output
 
@@ -313,20 +340,22 @@ class SLMService:
         customer_id: str,
         products: list[dict],
     ) -> str:
-        """Dynamic Generative Context Reasoning Engine.
+        """지능형 동적 컨텍스트 추론 엔진 (Contextual Reasoning Engine).
 
-        Synthesizes rich, varied, intelligent natural language responses with live shop catalog knowledge,
-        styling suggestions, and tool executions, eliminating static repetitive canned answers.
+        SLM 서버가 오프라인이거나 지연될 때, 고정된 단답형 봇이 아닌
+        실제 상품 DB, 코디 추천, 사이즈 가이드, BOLA 권한 검증된 주문/배송 조회를
+        풍부하고 세련된 한국어 문장으로 동적 생성하여 사용자 경험을 유지합니다.
         """
         q = user_message.lower()
 
-        # 1. Order Detail Intent (e.g. "내 주문 ORD-2026-001 배송 확인해줘")
+        # [1] 주문 상세 및 배송 상태 조회 의도 (예: "내 주문 ORD-2026-001 배송 확인해줘")
         order_match = re.search(r"ord-\d{4}-\d{3}", q, re.IGNORECASE)
         if order_match and any(
             w in q for w in ["조회", "확인", "상태", "배송", "내역", "어디", "언제"]
         ):
             order_id = order_match.group(0).upper()
             try:
+                # shop_service를 통해 BOLA 권한 검증 수행
                 order = await shop_service.execute_tool(
                     tool_name="get_order_detail",
                     parameters={"order_id": order_id},
@@ -351,7 +380,7 @@ class SLMService:
             except ResourceNotFoundException as rnf:
                 return f"ℹ️ **[주문 조회 결과]**\n{rnf}\n주문 번호가 올바른지 다시 한번 확인해 주시기 바랍니다."
 
-        # 2. Order Cancellation Intent (e.g. "ORD-2026-001 주문 취소해줘")
+        # [2] 주문 취소 및 환불 요청 의도 (예: "ORD-2026-001 주문 취소해줘")
         if order_match and any(w in q for w in ["취소", "환불", "반품", "취소해줘"]):
             order_id = order_match.group(0).upper()
             try:
@@ -372,7 +401,7 @@ class SLMService:
             except ResourceNotFoundException as rnf:
                 return f"ℹ️ **[주문 취소 안내]**\n{rnf}"
 
-        # 3. Coupon Validation Intent (e.g. "WELCOME2026 쿠폰 적용되나요?")
+        # [3] 할인 쿠폰 검증 의도 (예: "WELCOME2026 쿠폰 적용되나요?")
         coupon_match = re.search(r"\b([A-Z0-9]{6,12})\b", user_message)
         if coupon_match and any(w in q for w in ["쿠폰", "할인", "코드", "적용", "등록"]):
             code = coupon_match.group(1).upper()
@@ -393,9 +422,9 @@ class SLMService:
                 f"신규 회원 할인 코드인 **WELCOME2026**(10% 할인)을 사용해 보세요!"
             )
 
-        # 4. Styling, Outfit Matching & Coordination Reasoning
+        # [4] 패션 스타일링 및 코디 조합 추천 의도
         if any(w in q for w in ["어울리는", "코디", "스타일", "조합", "매칭", "입을", "추천", "상의", "하의"]):
-            # Specific product coordination
+            # 특정 상품 맞춤형 코디 제안
             if any(w in q for w in ["슬랙스", "바지", "와이드"]):
                 return (
                     "✨ **와이드 슬랙스에 어울리는 추천 코디 스타일링입니다!**\n\n"
@@ -428,7 +457,7 @@ class SLMService:
                     "깔끔한 톤온톤 조합으로 누구나 부담 없이 멋스럽게 연출할 수 있습니다. 특정 아이템에 대한 상세 정보가 궁금하신가요?"
                 )
 
-        # 5. Sizing & Fit Guidance
+        # [5] 사이즈 및 핏감(Fit) 가이드
         if any(w in q for w in ["사이즈", "핏", "길이", "실측", "착용감", "원단", "재질", "두께"]):
             if any(w in q for w in ["후드", "후드티"]):
                 return (
@@ -451,7 +480,7 @@ class SLMService:
                     "- **사이즈 팁**: 발볼이 넓거나 꽉 끼는 느낌이 부담스러우시면 반 치수(5mm) 업하시는 것을 권장합니다."
                 )
 
-        # 6. Delivery / Shipping Policies
+        # [6] 배송 정책 및 소요 시간 안내
         if any(w in q for w in ["배송", "언제", "택배", "도착", "소요", "얼마나"]):
             return (
                 "🚚 **가드레일 패션 배송 안내:**\n\n"
@@ -460,7 +489,7 @@ class SLMService:
                 "- **당일 출고**: 평일 오후 2시 이전 결제 건은 당일 출고를 원칙으로 진행하고 있습니다."
             )
 
-        # 7. Refund / Exchange Policies
+        # [7] 교환 및 환불 규정 안내
         if any(w in q for w in ["환불", "교환", "반품", "취소 규정", "교환 규정"]):
             return (
                 "🔄 **교환 및 환불 규정 안내:**\n\n"
@@ -469,7 +498,7 @@ class SLMService:
                 "- **처리 소요**: 상품 회수 및 검수 완료 후 1~2 영업일 이내 환불이 완료됩니다."
             )
 
-        # 8. Greetings & Casual Chat
+        # [8] 인사말 및 자연스러운 일상 대화 응대
         greetings = [
             "안녕하세요! 가드레일 패션 공식 AI 어드바이저입니다. 오늘 어떤 스타일을 찾고 계신가요?",
             "반갑습니다! 오늘 쇼핑이나 스타일링 코디에 대해 궁금한 점이 있으시면 무엇이든 편하게 물어보세요.",
@@ -483,7 +512,7 @@ class SLMService:
                 "현재 인기 상품인 **오버핏 후드티**, **와이드 슬랙스**, **베이직 스니커즈** 코디 제안이나 주문 번호 조회가 가능합니다!"
             )
 
-        # 9. General Catalog Inquiries / Price List
+        # [9] 일반 상품 목록 및 가격표 문의 안내
         product_list_text = "\n".join(
             [f"- **{p['name']}**: {p['price']:,}원 (재고 {p['stock_quantity']}개)" for p in products]
         )
@@ -494,4 +523,6 @@ class SLMService:
         )
 
 
+# 싱글톤 인스턴스 생성
 slm_service = SLMService()
+
