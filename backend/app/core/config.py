@@ -31,10 +31,9 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "guardrail_db"
     DATABASE_URL: str | None = None
 
-    # Ollama / SLM Settings
-    OLLAMA_BASE_URL: str = "http://host.docker.internal:11434"
-    OLLAMA_MODEL: str = "qwen2.5:latest"
-    OLLAMA_TIMEOUT_SECONDS: int = 15
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    OLLAMA_MODEL: str = "qwen2.5:7b"
+    OLLAMA_TIMEOUT_SECONDS: int = 5
     ENABLE_MOCK_FALLBACK: bool = True
 
     # Logging
