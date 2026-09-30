@@ -1,5 +1,6 @@
 """Main FastAPI Application Entrypoint."""
 
+import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -21,6 +22,7 @@ from app.core.exceptions import (
 )
 from app.core.logging import logger
 from app.guardrails.rule_manager import rule_manager
+from app.services.slm_service import slm_service
 
 
 @asynccontextmanager
@@ -29,6 +31,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Initializing AI Security Guardrail Gateway...")
     await rule_manager.initialize()
     logger.info("RuleCacheManager initialized successfully.")
+    asyncio.create_task(slm_service.prewarm())
     yield
     logger.info("Shutting down AI Security Guardrail Gateway...")
 

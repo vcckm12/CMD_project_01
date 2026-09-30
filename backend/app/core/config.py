@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
     OLLAMA_MODEL: str = "qwen2.5:7b"
-    OLLAMA_TIMEOUT_SECONDS: int = 5
+    OLLAMA_TIMEOUT_SECONDS: int = 25
     ENABLE_MOCK_FALLBACK: bool = True
 
     # Logging
