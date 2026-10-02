@@ -154,6 +154,7 @@ API v1의 enum·필수 필드·HTTP·SSE event 이름을 호환 계약으로 관
 | reference 원본 보존 | 통과 | 참조 HTML 3개·PNG 1개의 작성 전후 SHA-256 동일, corpus는 읽기만 수행 |
 | 실제 FastAPI·UI·모델·복구 T-01~28 | 미수행 | 프로젝트 소스·배포 환경이 없는 구현 전 설계 |
 | 1.1 개정(D-14~D-24) | 문서 반영, DDL 재검증 미수행 | maintenance_worker 권한 추가분은 구현 단계 migration 시험에서 확인. Ollama 사전 측정은 단건 수동 호출이며 T-23을 대체하지 않음 |
+| 구현 1단계: 초기 DDL·역할 | 통과 | 2026-10-02, PostgreSQL 17.11(Docker `postgres:17.11-alpine`), psycopg 3.3.6. 19개 테이블, 7개 로그인 역할 membership, 16개 권한(D-18 포함), action·ruleset 불변 trigger, 소유 cart·쿠폰 복합 FK, status/stage CHECK 등 45개 통합 테스트. migration 재실행 멱등 확인 |
 
 SQL 검증은 PostgreSQL 17.5를 사용하는 WASM 기반 PGlite 격리 환경이다. 네이티브 PostgreSQL의 네트워크·pool·부하·장애·실제 worker 동시성·backup/PITR은 검증하지 않았다. 정규식 36개 fixture는 표의 regex·후보식 부분만 다루며 context/structural 엔진의 복합 판정·마스킹 span·모델 E2E·ReDoS 전체 시험이나 탐지율 측정이 아니다.
 
