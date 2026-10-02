@@ -154,6 +154,7 @@ API v1의 enum·필수 필드·HTTP·SSE event 이름을 호환 계약으로 관
 | reference 원본 보존 | 통과 | 참조 HTML 3개·PNG 1개의 작성 전후 SHA-256 동일, corpus는 읽기만 수행 |
 | 실제 FastAPI·UI·모델·복구 T-01~28 | 미수행 | 프로젝트 소스·배포 환경이 없는 구현 전 설계 |
 | 1.1 개정(D-14~D-24) | 문서 반영, DDL 재검증 미수행 | maintenance_worker 권한 추가분은 구현 단계 migration 시험에서 확인. Ollama 사전 측정은 단건 수동 호출이며 T-23을 대체하지 않음 |
+| 구현 3단계: 가드레일 엔진·룰셋 게시 | 통과(기능), 탐지율 목표 미달 | 2026-10-02, regex 2026.9.29·markdown-it-py 4.2.0. 엔진·룰셋·게시 시험 142건(T-02~T-09·T-18 해당분, ReDoS·timeout fail-closed·prefilter 동등성·8,000자/32,000자 예산 포함). **입력 탐지 측정**(입력 엔진 단독, 모델 없음): 개발셋(기존 공격 150·정상 100·hard negative 60) TPR 100%·FPR 0%/1.7% — 규칙 작성 중 참조한 셋이라 낙관적. **held-out v1**(규칙 확정 후 작성, 공격 60·정상 40, 1회 측정): TPR 33.3%·FPR 2.5%. input_ms p95 0.46ms(단건 CPU). REQ-N02 목표(≥95%)는 입력 규칙 단독으로 미달이며 독립 시험셋 T-24와 E2E(입력·실행·출력 합산) 측정이 필요 |
 | 구현 2단계: 인증 | 통과 | 2026-10-02, FastAPI 0.142.2·PyJWT 2.15.1·argon2-cffi 25.1.0. AUTH-01~07 통합 테스트 45건: JWT 변조·alg none·HS256 혼동·aud/iss·만료, DB token_version 대조, refresh 회전·재사용 시 계열 폐기, CSRF·Origin, 로그아웃 시 client token 무효화(D-17 (가)), 채널 위조(T-27 일부), 토큰 IDOR, 인증 전 실패 미감사(D-19), 413·request_id. 실제 컨테이너에서 관리 CLI·로그인 smoke 확인 |
 | 구현 1단계: 초기 DDL·역할 | 통과 | 2026-10-02, PostgreSQL 17.11(Docker `postgres:17.11-alpine`), psycopg 3.3.6. 19개 테이블, 7개 로그인 역할 membership, 16개 권한(D-18 포함), action·ruleset 불변 trigger, 소유 cart·쿠폰 복합 FK, status/stage CHECK 등 45개 통합 테스트. migration 재실행 멱등 확인 |
 

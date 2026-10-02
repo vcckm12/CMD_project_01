@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -12,8 +15,18 @@ from app.config import Settings, get_settings
 from app.context import RequestContextMiddleware
 from app.db.pools import Pools
 from app.errors import install_error_handlers
+from app.guardrails.input_guardrail import InputGuardrailEngine
+from app.guardrails.output_guardrail import OutputGuardrailEngine
+from app.guardrails.rule_cache import RuleCache
 from app.security.auth import LoginRateLimiter
 from app.security.tokens import JwtSigner
+
+
+def load_fingerprints(path: Path | None) -> frozenset[str]:
+    if path is None:
+        return frozenset()
+    lines = (line.strip().lower() for line in path.read_text(encoding="utf-8").splitlines())
+    return frozenset(line for line in lines if len(line) == 64 and all(c in "0123456789abcdef" for c in line))
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -21,11 +34,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.pools = Pools(settings.auth_database_url)
+        app.state.pools = Pools(settings.auth_database_url, settings.chat_database_url)
         await app.state.pools.open()
+        reloader = None
+        if app.state.pools.chat is not None:
+            # First load happens before serving; afterwards a poller swaps snapshots atomically.
+            await app.state.rule_cache.refresh(app.state.pools.chat)
+            reloader = asyncio.create_task(
+                app.state.rule_cache.run(app.state.pools.chat, settings.ruleset_poll_seconds)
+            )
         try:
             yield
         finally:
+            if reloader is not None:
+                reloader.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await reloader
             await app.state.pools.close()
 
     app = FastAPI(
@@ -40,6 +64,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.jwt_private_key_file, settings.jwt_issuer, settings.jwt_audience, settings.access_token_ttl_seconds
     )
     app.state.login_limiter = LoginRateLimiter(settings.login_failure_limit, settings.login_failure_window_seconds)
+    app.state.rule_cache = RuleCache()
+    app.state.input_engine = InputGuardrailEngine(budget_ms=settings.guardrail_budget_ms)
+    app.state.output_engine = OutputGuardrailEngine(
+        secret_fingerprints=load_fingerprints(settings.secret_fingerprints_file),
+        budget_ms=settings.guardrail_budget_ms,
+    )
     install_error_handlers(app)
     app.add_middleware(RequestContextMiddleware, max_body_bytes=settings.max_body_bytes)
     app.include_router(health.router)

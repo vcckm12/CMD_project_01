@@ -180,6 +180,8 @@ def test_rules_frozen_after_validation(db, seed):
 
 
 def test_only_one_active_ruleset(db, seed):
+    # A real ruleset may already be active in this database; retire it inside the rolled-back transaction.
+    db.execute("UPDATE threat_intel.rulesets SET state='retired' WHERE state='active'")
     second = uuid.uuid4()
     db.execute(
         "INSERT INTO threat_intel.rulesets (id, version_label, created_by, state, checksum, validated_at) "

@@ -111,12 +111,40 @@ def jwt_key_file(tmp_path_factory):
     return path
 
 
+@pytest.fixture(scope="session")
+def active_ruleset():
+    """Make sure some validated ruleset is active so readiness can pass (bootstrap if the DB is fresh)."""
+    import asyncio
+
+    from app.guardrails import rule_store
+
+    async def ensure():
+        rules_url = _dsn("ag_rules", os.environ["TEST_RULES_PASSWORD"])
+        async with await psycopg.AsyncConnection.connect(rules_url) as conn:
+            if await rule_store.active_id(conn) is not None:
+                return
+            with psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True) as su:
+                actor = su.execute(
+                    "INSERT INTO commerce.users (login_email, password_hash, role)"
+                    " VALUES (%s, 'x', 'admin') RETURNING id",
+                    (f"bootstrap-{uuid.uuid4().hex[:8]}@example.invalid",),
+                ).fetchone()[0]
+            draft = await rule_store.create_draft(conn, label=f"test-boot-{uuid.uuid4().hex[:8]}", actor_id=actor)
+            assert await rule_store.validate_draft(conn, draft) == []
+            await rule_store.publish(
+                conn, ruleset_id=draft, expected_active_id=None, actor_id=actor, request_id=uuid.uuid4()
+            )
+
+    asyncio.run(ensure())
+
+
 @pytest.fixture
-def settings(jwt_key_file):
+def settings(jwt_key_file, active_ruleset):
     from app.config import Settings
 
     return Settings(
         auth_database_url=_dsn("ag_auth", os.environ["TEST_AUTH_PASSWORD"]),
+        chat_database_url=_dsn("ag_chat", os.environ["TEST_CHAT_PASSWORD"]),
         jwt_private_key_file=jwt_key_file,
     )
 

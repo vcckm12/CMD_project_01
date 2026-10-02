@@ -11,7 +11,7 @@ cache-dir = "/tmp/ruff-cache"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S"]
 # S101: pytest asserts. S608: SQL built only from constant column names in tests.
-per-file-ignores = { "tests/*" = ["S101", "S608", "S105", "S106"] }
+per-file-ignores = { "tests/*" = ["S101", "S608", "S105", "S106"], "app/guardrails/ruleset.py" = ["E501"] }  # rule table: one regex per line
 
 [tool.pytest.ini_options]
 addopts = "-p no:cacheprovider"

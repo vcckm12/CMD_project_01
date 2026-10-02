@@ -2,7 +2,7 @@
 
 | 항목 | 값 |
 |---|---|
-| 문서 번호 / 버전 / 작성일 | DES-006 / 1.1 / 2026-10-02 (D-14·D-16·D-21 반영) |
+| 문서 번호 / 버전 / 작성일 | DES-006 / 1.2 / 2026-10-02 (D-14·D-16·D-21, 구현 1차 반영 §3.3) |
 | 상태 | 구현 전 제안 엔진·룰·정규식, 탐지 성능 미측정 |
 | 연계 | [API](05_api_integration_spec.md), [DB·감사](02_database_design.md), [시험](07_verification_operations_plan.md) |
 
@@ -61,7 +61,7 @@ RuleHit은 rule_id·category·stage·action·count만 포함한다. 일치 원�
 
 제거 대상은 U+200B/U+200C/U+200D/U+2060/U+FEFF/U+00AD, confusable 기본 매핑은 Cyrillic А/а→A/a, В→B, Е/е→E/e, К→K, М→M, Н→H, О/о→O/o, Р/р→P/p, С/с→C/c, Т→T, Х/х→X/x이다. Latin 문자 전부를 변환한다고 주장하지 않는다. leet 후보는 a=@/4, e=3, i=!/1, o=0, s=$/5, t=7로 만들며 정상 원문을 치환하지 않는다.
 
-URL/Hex/Base64 변형에서 다시 같은 depth budget으로 파생 후보를 검사한다. 중복 후보는 hash로 제거한다. 2단계를 넘는 중첩, ROT13·binary·역순·모든 언어의 음성적 우회는 초기 엔진이 완전히 지원하지 않는다. 위험한 decode 폭증·variant 초과는 조용히 일부만 검사하고 통과시키지 않고 제한 오류로 종료한다.
+URL/Hex/Base64 변형에서 다시 같은 depth budget으로 파생 후보를 검사한다. 중복 후보는 hash로 제거한다. `0x` 접두 Hex 문자열도 복원한다. ROT13은 입력에 `rot13` 표기가 있을 때만 복원 사본을 만든다. 2단계를 넘는 중첩, 표기 없는 ROT13·binary·역순·모든 언어의 음성적 우회는 초기 엔진이 완전히 지원하지 않는다. 위험한 decode 폭증·variant 초과는 조용히 일부만 검사하고 통과시키지 않고 제한 오류로 종료한다.
 
 NFKC·Zero-Width 제거본을 모델용 canonical 입력으로 사용할 수 있으나 confusable·leet·구분자 제거는 **검사용 사본**에만 적용한다. 정상 상품명·주소·숫자 서식을 의미 없이 바꾸지 않는다. 변형 결과를 실행할 코드·SQL·명령으로 해석하지 않는다.
 
@@ -92,7 +92,28 @@ Markdown 표의 `\|`는 표 구분자를 escape한 표시다. 실제 pattern에�
 
 context 행의 regex 후보식은 i(case-insensitive)로 compile하며 후보식 일치만으로 최종 판정을 하지 않는다. context 공통 사전은 실행 요청=`실행/수행/작동/run/execute`, 출력 요청=`출력/공개/알려/보여/print/reveal/show`, 기밀 대상=`실제 관리자 키/실제 DB 암호/전체 고객 개인정보/system prompt/master key/database password`다. 단순 보안 용어 설명이나 가상 인물 묘사만으로 context 룰을 충족하지 않는다. 요소의 공존은 동일 최대 500자 window 또는 최근 5 turn의 동일 목표 risk signal 안에서 판단한다.
 
-다중 턴 signal은 역할 전환 요청·기밀 대상·출력 요청의 종류와 count만 보관한다. 같은 세션에서 기밀 대상 signal 뒤에 지시대명사 기반 출력 요청(`그 값/실제 값/that value`)이 오면 유출 요청으로 판정한다. 전체 의도를 이해하는 모델처럼 표현하지 않으며, 세션을 바꾸거나 뜻을 바꾼 우회에 잔여 위험이 있다.
+다중 턴 signal은 역할 전환(r)·할머니형(g)·기밀 대상(s)·출력 요청(o)의 0/1 값만 최근 5 turn 보관한다(`{"v":1,"turns":[{"r":0,"g":0,"s":1,"o":0}]}`). 판정 rule_id는 RULE_MULTI_TURN_SECRET_FOLLOWUP(LLM01:2025)이다. 같은 세션에서 기밀 대상 signal 뒤에 지시대명사 기반 출력 요청(`그 값/실제 값/that value`)이 오면 유출 요청으로 판정한다. 전체 의도를 이해하는 모델처럼 표현하지 않으며, 세션을 바꾸거나 뜻을 바꾼 우회에 잔여 위험이 있다.
+
+### 3.3 구현 1차 반영 (2026-10-02)
+
+DES-006 1.1의 초기 패턴만으로는 개발 측정에서 공격 탐지율이 19.3%였다(아래 DES-007 §8). 다음을 추가·확장했다. 패턴 원문은 `backend/app/guardrails/ruleset.py`의 DEFAULT_RULES가 기준이며 게시 시 DB `threat_intel.rules`에 저장된다.
+
+| rule_id | kind | 대상 | OWASP / action |
+|---|---|---|---|
+| RULE_JAILBREAK_PERSONA | regex / i | 제한 없는 AI·가드레일 해제·Opposite Day·최면·검열 해제 등 영/한 탈옥 표현 | LLM01:2025 / block |
+| RULE_PROMPT_EXTRACTION | regex / i | 출력 동사 + 초기/숨겨진/시스템 지침·프롬프트(양방향 어순), "words above", 한·중·일·프·스·러·독 표현 | LLM07:2025 / block |
+| RULE_CREDENTIAL_REQUEST | regex / i | DB·관리자·서버 비밀번호, API·secret key, `.env`, `ENV_NAME_PASSWORD` 형식 요청 | LLM02:2025 / block |
+| RULE_PRIVILEGE_ESCALATION | regex / i | 관리자 권한 부여·로그인·쉘 실행 요청 | LLM06:2025 / block |
+| RULE_SQL_INJECTION_SYNTAX | regex / i | `UNION SELECT`, `' OR '1'='1`, `; DROP`, `--` 종료 등 SQL 구문 | LLM05:2025 / block |
+| RULE_CONFIDENTIAL_BUSINESS_DATA | regex / i | 원가·마진·도매·공급가 + 대외비·덤프·테이블 등 업무 기밀 요청, `cost_price` | LLM02:2025 / block |
+| RULE_OBFUSCATED_SENSITIVE_TERM | context | 민감 단어가 원문에는 없고 confusable·NFKC·복호·구분자 제거 사본에만 나타남(leet 사본 제외) | LLM01:2025 / block |
+| RULE_MULTI_TURN_SECRET_FOLLOWUP | context | 이전 5 turn 기밀 대상 signal 뒤 지시대명사 출력 요청, 또는 이전 역할극 signal 뒤 기밀+출력 | LLM01:2025 / block |
+
+기존 RULE_IGNORE_INSTRUCTIONS(대상어 확장: directives·context·guardrails 등, 수식어 없는 "ignore all instructions"), RULE_KOREAN_IGNORE_INSTRUCTIONS(`지금까지/앞서/위의`, `지침을 무시하고`), RULE_PII_EXTRACTION_ATTEMPT(개인정보·연락처·카드, `마스킹 해제`, 영문 dump/export)도 확장했다. confusable 매핑에 우크라이나 і·ј·ѕ 등과 그리스 대문자·유사 소문자를 추가했다.
+
+**성능 보호:** 정규식은 2,000자 window(겹침 512자)로 나눠 호출당 2ms timeout을 지킨다. 기본 패턴에는 키워드 prefilter(소문자 casefold 부분 문자열)를 두어 해당 키워드가 없으면 정규식을 생략한다. prefilter는 패턴이 출하 기본값과 동일할 때만 적용하므로 관리자가 DB에서 패턴을 수정하면 자동으로 전체 검사로 돌아간다. 게시 검증은 모든 positive fixture가 prefilter를 통과하는지(PREFILTER_UNSOUND) 확인하고, 시험은 prefilter 유무의 판정이 전 코퍼스에서 동일함을 확인한다.
+
+**알려진 한계:** 규칙은 개발 시험셋을 보며 작성되어 그 셋에서는 100%를 보이나, 이후 작성한 held-out 셋에서는 33.3%였다(DES-007 §8). 의역·우회 표현에 대한 일반화가 약하다. 입력 규칙을 놓쳐도 최소 컨텍스트(D-13), Tool 소유권, 출력 전체 검사·마스킹, 변경 확인이 피해를 제한하도록 설계되어 있으며, 분류 모델 추가 여부는 별도 결정 사항이다.
 
 ## 4. 출력 검사·PII 마스킹·렌더링
 

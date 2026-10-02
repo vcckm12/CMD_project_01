@@ -11,7 +11,7 @@
 | 설계 문서 DES-000~007 v1.1 | 완료 |
 | PostgreSQL 17 스키마·역할·권한 + 통합 테스트 | 완료 |
 | 인증(JWT·refresh·client token) | 완료 |
-| 입력·출력 가드레일 엔진 | 예정 |
+| 입력·출력 가드레일 엔진·룰셋 게시 | 완료 (탐지율은 [DES-007 §8](docs/07_verification_operations_plan.md#8-문서-검증-기록) 참고) |
 | 챗 파이프라인·Ollama 연동 | 예정 |
 | Tool·변경 승인 | 예정 |
 | 감사 worker·스케줄러 | 예정 |

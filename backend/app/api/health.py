@@ -21,9 +21,12 @@ async def ready(request: Request) -> JSONResponse:
     if request.state.channel is not None:
         await require_staff(request)
     settings = request.app.state.settings
+    cache = request.app.state.rule_cache
     checks = {
         "guardrail_enforced": settings.app_env == "lab" or settings.guardrail_enforced,
         "database": False,
+        "ruleset_loaded": cache.current() is not None,
+        "ruleset_consistent": cache.consistent,
     }
     try:
         async with request.app.state.pools.auth.connection(timeout=2) as conn:

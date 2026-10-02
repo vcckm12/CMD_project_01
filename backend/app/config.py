@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     rules_database_url: str | None = None
     audit_reader_database_url: str | None = None
 
+    # Guardrail inspection hard budget per stage (D-16) and optional registered secret fingerprints
+    # (one SHA-256 hex per line) checked by RULE_CRITICAL_SECRET_DUMP.
+    guardrail_budget_ms: float = 50.0
+    secret_fingerprints_file: Path | None = None
+    ruleset_poll_seconds: float = 5.0
+
     jwt_private_key_file: Path
     jwt_issuer: str = "ai-guardrail"
     jwt_audience: str = "ai-guardrail-api"
