@@ -9,8 +9,18 @@ from tests.conftest import as_role, insert_action, reset_role
 
 EXPECTED_TABLES = {
     "commerce": {
-        "users", "refresh_tokens", "client_tokens", "chat_sessions", "products", "orders",
-        "order_items", "coupons", "user_coupons", "carts", "cart_items", "actions",
+        "users",
+        "refresh_tokens",
+        "client_tokens",
+        "chat_sessions",
+        "products",
+        "orders",
+        "order_items",
+        "coupons",
+        "user_coupons",
+        "carts",
+        "cart_items",
+        "actions",
     },
     "threat_intel": {"rulesets", "rules", "policy_publications"},
     "audit": {"outbox", "events", "rule_hits", "tool_executions"},
@@ -39,9 +49,13 @@ def test_owner_is_not_superuser(owner_conn):
 @pytest.mark.parametrize(
     ("login", "group"),
     [
-        ("ag_chat", "shop_writer"), ("ag_chat", "audit_ingest"), ("ag_auth", "auth_service"),
-        ("ag_rules", "rule_publisher"), ("ag_audit_worker", "audit_worker"),
-        ("ag_maintenance", "maintenance_worker"), ("ag_retention", "retention_worker"),
+        ("ag_chat", "shop_writer"),
+        ("ag_chat", "audit_ingest"),
+        ("ag_auth", "auth_service"),
+        ("ag_rules", "rule_publisher"),
+        ("ag_audit_worker", "audit_worker"),
+        ("ag_maintenance", "maintenance_worker"),
+        ("ag_retention", "retention_worker"),
     ],
 )
 def test_login_role_membership(db, login, group):
@@ -185,9 +199,15 @@ def test_mask_rule_requires_output_stage_and_marker(db, seed):
         )
 
 
-@pytest.mark.parametrize(("status", "stage", "ok"), [
-    ("blocked", None, False), ("blocked", "input", True), ("success", "input", False), ("masked", None, True),
-])
+@pytest.mark.parametrize(
+    ("status", "stage", "ok"),
+    [
+        ("blocked", None, False),
+        ("blocked", "input", True),
+        ("success", "input", False),
+        ("masked", None, True),
+    ],
+)
 def test_event_status_stage_consistency(db, status, stage, ok):
     stmt = (
         "INSERT INTO audit.events "

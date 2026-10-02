@@ -10,7 +10,7 @@
 |---|---|
 | 설계 문서 DES-000~007 v1.1 | 완료 |
 | PostgreSQL 17 스키마·역할·권한 + 통합 테스트 | 완료 |
-| 인증(JWT·refresh·client token) | 예정 |
+| 인증(JWT·refresh·client token) | 완료 |
 | 입력·출력 가드레일 엔진 | 예정 |
 | 챗 파이프라인·Ollama 연동 | 예정 |
 | Tool·변경 승인 | 예정 |
@@ -25,8 +25,19 @@
 python scripts/gen_env.py                 # .env 생성 (임의 비밀번호, 커밋 금지)
 docker compose up -d --wait postgres      # PostgreSQL 17
 docker compose run --rm migrate           # 스키마 적용 + 로그인 역할 발급
-docker compose --profile test run --rm db-test   # 스키마 통합 테스트
+docker compose --profile test run --rm db-test   # DB·API 통합 테스트
 ```
+
+API 서버(현재 인증·health만 제공):
+
+```bash
+python scripts/gen_jwt_key.py              # secrets/jwt_private.pem (cryptography 필요)
+docker compose up -d --wait api
+# 관리자 계정은 공개 API가 아닌 내부 명령으로만 생성 (비밀번호는 프롬프트로 입력)
+docker compose exec api python -m app.cli.create_user --email admin@example.internal --role admin
+```
+
+JWT 서명 키 `secrets/jwt_private.pem`은 커밋하지 않습니다.
 
 DB 포트는 호스트에 공개하지 않습니다. 데이터를 지우고 다시 시작하려면 `docker compose down -v`.
 

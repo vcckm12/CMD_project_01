@@ -14,7 +14,7 @@
 
 access JWT는 `Authorization: Bearer <access_token>`으로 전달한다. RS256, 키 ID `kid`, `iss=ai-guardrail`, `aud=ai-guardrail-api`, `sub=user UUID`, `role`, `token_version`, `jti`, `iat`, `exp`를 사용한다. 유효기간은 15분이다. 허용 알고리즘·키·issuer·audience·시간을 고정 검증하고 DB의 is_active·role·token_version을 대조한다. 사용자·role·scope를 body나 클라이언트 system message에서 취득하지 않는다.
 
-refresh token은 7일 유효한 opaque 난수다. 웹에서는 `HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth` cookie로 보관하고 회전한다. cookie 기반 refresh/logout은 허용 Origin과 CSRF cookie/header의 일치도 검증한다. CSRF 값은 로그인 응답의 `csrf_token`에도 제공하며 쿠키명은 `guardrail_csrf`, 헤더는 `X-CSRF-Token`이다. 동일 refresh가 재사용되면 family 전체를 폐기한다. 비밀번호는 최소 12자·최대 128자, Argon2id 해시를 사용하고 로그인 오류는 계정 존재 여부를 구분하지 않는다.
+refresh token은 7일 유효한 opaque 난수다. 웹에서는 `guardrail_refresh` 이름의 `HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth` cookie로 보관하고 회전한다. 회전은 token 행을 잠근 한 transaction에서 수행해 같은 token이 두 번 회전되지 않게 한다. cookie 기반 refresh/logout은 허용 Origin과 CSRF cookie/header의 일치도 검증한다. CSRF 값은 로그인 응답의 `csrf_token`에도 제공하며 쿠키명은 `guardrail_csrf`(새로고침 후에도 읽을 수 있도록 HttpOnly 아님, `Secure; SameSite=Strict; Path=/`), 헤더는 `X-CSRF-Token`이다. 로그인 실패는 IP·이메일별 15분 10회를 넘으면 429다(단일 worker 메모리 카운터). 동일 refresh가 재사용되면 family 전체를 폐기한다. 비밀번호는 최소 12자·최대 128자, Argon2id 해시를 사용하고 로그인 오류는 계정 존재 여부를 구분하지 않는다.
 
 웹 access token은 메모리에 보관하며 localStorage·URL에 넣지 않는다. Streamlit은 사용자별 requests session·JWT·refresh cookie를 해당 사용자 `st.session_state`에만 유지하고 브라우저의 관리망 Origin에 해당하는 값으로 서버 간 인증 요청을 보낸다. 전역 변수·캐시로 사용자 토큰을 공유하지 않는다. 로그아웃은 refresh family를 폐기하고 token_version을 증가시켜 **모든 기기 JWT·클라이언트 토큰**을 무효화한다.
 
@@ -48,10 +48,10 @@ operator/admin 검증 챗에는 합성 컨텍스트만 제공하고 실제 고�
 | HTTP | 대표 code | 처리 |
 |---|---|---|
 | 400 | INVALID_REQUEST, UNSUPPORTED_MODEL | 형식·지원 옵션 오류 |
-| 401 | AUTH_REQUIRED, TOKEN_EXPIRED, TOKEN_REVOKED | 로그인·토큰 갱신 |
+| 401 | AUTH_REQUIRED, INVALID_CREDENTIALS, TOKEN_EXPIRED, TOKEN_REVOKED | 로그인·토큰 갱신, 로그인 실패는 계정 유무·비활성·채널 불일치를 구분하지 않는 INVALID_CREDENTIALS |
 | 403 | FORBIDDEN, GUARDRAIL_BLOCKED | 역할·scope 금지, 전용 챗 차단 |
 | 404 | NOT_FOUND | 객체 없음 또는 다른 사용자 소유, 존재 여부 비공개 |
-| 409 | SESSION_BUSY, ACTION_STALE, ACTION_TERMINAL, IDEMPOTENCY_CONFLICT | 동시성·terminal 충돌 |
+| 409 | SESSION_BUSY, ACTION_STALE, ACTION_TERMINAL, IDEMPOTENCY_CONFLICT, EMAIL_UNAVAILABLE | 동시성·terminal 충돌, 회원가입 이메일 중복 |
 | 410 | ACTION_EXPIRED | 만료한 본인 승인 |
 | 413 | BODY_TOO_LARGE | body 262,144 bytes 초과 |
 | 422 | VALIDATION_ERROR | 필드·길이·인자·미지원 role 오류 |

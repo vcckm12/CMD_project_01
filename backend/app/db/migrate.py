@@ -73,9 +73,7 @@ def provision_login_roles(conn: psycopg.Connection, dbname: str) -> None:
             verb = "ALTER" if exists else "CREATE"
             # Role passwords cannot be bind parameters; sql.Literal quotes them safely.
             conn.execute(
-                sql.SQL(verb + " ROLE {} LOGIN INHERIT PASSWORD {}").format(
-                    sql.Identifier(role), sql.Literal(password)
-                )
+                sql.SQL(verb + " ROLE {} LOGIN INHERIT PASSWORD {}").format(sql.Identifier(role), sql.Literal(password))
             )
             conn.execute(
                 sql.SQL("GRANT {} TO {}").format(
@@ -83,9 +81,7 @@ def provision_login_roles(conn: psycopg.Connection, dbname: str) -> None:
                 )
             )
             conn.execute(
-                sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
-                    sql.Identifier(dbname), sql.Identifier(role)
-                )
+                sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(sql.Identifier(dbname), sql.Identifier(role))
             )
 
 

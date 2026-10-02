@@ -37,7 +37,32 @@ services:
     restart: "no"
     networks: [app]
 
-  # Integration tests against the real database: docker compose run --rm db-test
+  api:
+    build: { context: ./backend, target: runtime }
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000",
+              "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*", "--no-server-header"]
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      GUARDRAIL_ENFORCED: "true"
+      AUTH_DATABASE_URL: postgresql://ag_auth:${AG_AUTH_PASSWORD}@postgres:5432/${AG_DB_NAME:-ai_guardrail}
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      SHOP_ORIGIN: ${SHOP_ORIGIN:-https://shop.example.internal}
+      OPS_ORIGIN: ${OPS_ORIGIN:-https://ops.example.internal}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      OLLAMA_MODEL_DIGEST: ${OLLAMA_MODEL_DIGEST}
+    secrets: [jwt_private_key]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [app]
+
+  # Integration tests against the real database: docker compose --profile test run --rm db-test
   db-test:
     build: { context: ./backend, target: dev }
     profiles: [test]
@@ -47,9 +72,14 @@ services:
       TEST_DB_NAME: ${AG_DB_NAME:-ai_guardrail}
       TEST_SUPERUSER_PASSWORD: ${POSTGRES_PASSWORD}
       TEST_OWNER_PASSWORD: ${AG_OWNER_PASSWORD}
+      TEST_AUTH_PASSWORD: ${AG_AUTH_PASSWORD}
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [app]
+
+secrets:
+  jwt_private_key:
+    file: ./secrets/jwt_private.pem
 
 volumes:
   pgdata:

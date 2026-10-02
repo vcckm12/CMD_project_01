@@ -1,1 +1,10 @@
-psycopg[binary,pool]==3.3.6
+fastapi==0.142.2
+starlette==1.7.0
+uvicorn[standard]==0.54.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+psycopg[binary]==3.3.6
+psycopg-pool==3.3.3
+argon2-cffi==25.1.0
+pyjwt[crypto]==2.15.1
+cryptography==50.0.2

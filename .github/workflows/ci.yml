@@ -11,12 +11,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Generate throwaway secrets
-        run: python3 scripts/gen_env.py
+        run: |
+          python3 scripts/gen_env.py
+          pip install cryptography
+          python3 scripts/gen_jwt_key.py
       - name: Start PostgreSQL 17 and apply migrations
         run: |
           docker compose up -d --wait postgres
           docker compose run --rm migrate
-      - name: Lint and schema integration tests
+      - name: Lint and DB/API integration tests
         run: docker compose --profile test run --rm --no-deps db-test sh -c 'ruff check . && pytest -q tests'
       - name: Tear down
         if: always()

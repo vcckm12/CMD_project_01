@@ -90,3 +90,71 @@ def insert_action(db, seed, **overrides):
         tuple(values.values()),
     )
     return values["id"]
+
+
+# ---------------------------------------------------------------- API fixtures
+
+SHOP = {"X-Edge-Channel": "shop", "Origin": "https://shop.example.internal"}
+OPS = {"X-Edge-Channel": "ops", "Origin": "https://ops.example.internal"}
+
+
+@pytest.fixture(scope="session")
+def jwt_key_file(tmp_path_factory):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    path = tmp_path_factory.mktemp("keys") / "jwt.pem"
+    path.write_bytes(
+        key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+    )
+    return path
+
+
+@pytest.fixture
+def settings(jwt_key_file):
+    from app.config import Settings
+
+    return Settings(
+        auth_database_url=_dsn("ag_auth", os.environ["TEST_AUTH_PASSWORD"]),
+        jwt_private_key_file=jwt_key_file,
+    )
+
+
+@pytest.fixture
+def client(settings):
+    from fastapi import Depends
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from app.security.auth import AuthContext, authenticate
+
+    app = create_app(settings)
+
+    # Test-only probe so client-token authentication can be exercised before chat routes exist.
+    @app.get("/api/v1/_test/whoami")
+    async def whoami(ctx: AuthContext = Depends(authenticate)):  # noqa: B008
+        return {"user_id": str(ctx.user_id), "kind": ctx.kind, "source": ctx.source}
+
+    with TestClient(app, base_url="https://testserver") as c:
+        yield c
+
+
+def new_email() -> str:
+    return f"u-{uuid.uuid4().hex[:12]}@example.invalid"
+
+
+PASSWORD = "correct horse battery 42"
+
+
+def register_and_login(client, headers=SHOP):
+    email = new_email()
+    r = client.post("/api/v1/auth/register", json={"email": email, "password": PASSWORD}, headers=SHOP)
+    assert r.status_code == 201, r.text
+    r = client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD}, headers=headers)
+    assert r.status_code == 200, r.text
+    return email, r.json()["data"]
+
+
+def bearer(token: str, base=SHOP) -> dict[str, str]:
+    return {**base, "Authorization": f"Bearer {token}"}
