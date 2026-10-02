@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>시스템 요구사항 및 MVP 범위 명세서 — PLN-002</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+<style>
+  :root {
+    --primary: #0f172a;
+    --accent-blue: #2563eb;
+    --accent-green: #059669;
+    --border-color: #cbd5e1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
+    color: var(--primary);
+    background-color: #ffffff;
+    line-height: 1.5;
+    padding: 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; width: 100%; }
+
+  .header {
+    border-bottom: 2px solid var(--primary);
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+  }
+  .header h1 { font-size: 26px; font-weight: 800; color: var(--primary); }
+  .header-meta { font-size: 14.5px; color: #64748b; margin-top: 4px; }
+
+  .section-title { font-size: 19px; font-weight: 800; color: var(--primary); margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 6px; }
+
+  .req-box {
+    background: #f8fafc; border: 1px solid var(--border-color); border-left: 4px solid var(--accent-green);
+    padding: 12px 16px; border-radius: 4px; margin-bottom: 12px;
+  }
+  .req-box.non-func { border-left-color: #d97706; }
+  .req-box h3 { font-size: 16.5px; font-weight: 800; margin-bottom: 6px; color: var(--accent-green); }
+  .req-box.non-func h3 { color: #d97706; }
+  .req-box ul { padding-left: 16px; font-size: 14.5px; margin: 0; }
+  .req-box li { margin-bottom: 4px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; margin-top: 10px; margin-bottom: 20px; }
+  th, td { border: 1px solid var(--border-color); padding: 10px 12px; text-align: left; }
+  th { background: #f1f5f9; font-weight: 700; text-align: center; }
+  .badge-in { background: #d1fae5; color: #065f46; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+  .badge-out { background: #f1f5f9; color: #64748b; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>시스템 요구사항 및 최소 구현 범위(MVP) 명세서 (PLN-002)</h1>
+    <div class="header-meta">OWASP Top 10 for LLM 방어 4대 기능 요구사항 및 3대 비기능 품질 목표 명세서</div>
+  </div>
+
+  <div class="section-title">1. 기능적 요구사항 (Functional Requirements)</div>
+  <div class="req-box">
+    <h3>[REQ-F01] 실시간 입력 필터링 (Input Guardrail)</h3>
+    <ul>
+      <li>프롬프트 인젝션(OWASP LLM01) 및 탈옥(Jailbreak) 명령을 0.01초 내 감지하여 차단</li>
+      <li>Base64 인코딩, 유니코드 변형 등 난독화된 우회 인젝션 디코딩 후 차단</li>
+    </ul>
+  </div>
+  <div class="req-box">
+    <h3>[REQ-F02] 실시간 출력 마스킹 및 XSS 방어 (Output Guardrail)</h3>
+    <ul>
+      <li>SLM 응답 내 개인정보(주민번호, 비밀번호, API Key) <code>[REDACTED]</code> 실시간 마스킹</li>
+      <li>HTML/JS 악성 스크립트 태그 무효화 및 악성 셸 커맨드 출력 시 스트림 강제 중단</li>
+    </ul>
+  </div>
+  <div class="req-box">
+    <h3>[REQ-F03] 가드레일 토글 스위치 (Before/After 시연 컨트롤러)</h3>
+    <ul>
+      <li>Streamlit 상단에 <strong>[🛡️ 가드레일 ON/OFF]</strong> 토글 스위치 배치</li>
+      <li>가드레일 OFF 시 취약점 유출 시연 ➔ ON 시 동일 프롬프트 실시간 방어 시연</li>
+    </ul>
+  </div>
+  <div class="req-box">
+    <h3>[REQ-F04] 차단 사유 시각화 및 리포팅</h3>
+    <ul>
+      <li>보안 차단 발생 시 사이드바 패널에 매칭 규칙, OWASP 위반 유형 실시간 표시</li>
+      <li>대화 세션별 보안 감사 이력 및 통계 요약 리포트 PDF 출력</li>
+    </ul>
+  </div>
+
+  <div class="section-title" style="margin-top:20px;">2. 비기능적 요구사항 (Non-Functional Requirements)</div>
+  <div class="req-box non-func">
+    <h3>[REQ-N01] 저사양 CPU 환경 속도 보장 (Performance)</h3>
+    <ul>
+      <li>Intel Xeon CPU 환경에서도 초당 4~8 토큰 이상의 대화 스트리밍 응답 속도 확보</li>
+      <li>가드레일 검사로 인한 추가 오버헤드 지연시간 0.03초 이내 유지</li>
+    </ul>
+  </div>
+  <div class="req-box non-func">
+    <h3>[REQ-N02] 과잉 차단 최소화 (Accuracy &amp; FPR)</h3>
+    <ul>
+      <li>공격 페이로드 방어율 95% 이상 달성 및 정상 질의 과잉 차단율(FPR) 5% 이하 유지</li>
+    </ul>
+  </div>
+  <div class="req-box non-func">
+    <h3>[REQ-N03] 경량화 및 완전 로컬 구동 (Privacy)</h3>
+    <ul>
+      <li>외부 클라우드 API 없이 로컬 Qwen2.5-7B 탑재로 비용 0원 및 완전 로컬 구동 보장</li>
+    </ul>
+  </div>
+
+  <div class="section-title" style="margin-top:20px;">3. 최소 구현 범위 (MVP Scope Matrix)</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:18%;">구분</th>
+        <th style="width:41%;">MVP 포함 범위 (In-Scope)</th>
+        <th style="width:41%;">추후 고도화 (Out-of-Scope)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="font-weight:bold; text-align:center; background:#f8fafc;">연동 모델</td>
+        <td><span class="badge-in">Target</span> 로컬 Uncensored SLM 1종 (Qwen2.5-7B GGUF)</td>
+        <td><span class="badge-out">Future</span> 상용 클라우드 LLM 다중 선택</td>
+      </tr>
+      <tr>
+        <td style="font-weight:bold; text-align:center; background:#f8fafc;">방어 엔진</td>
+        <td><span class="badge-in">Target</span> 정규식(Regex) + 키워드 매칭 + Base64 디코더</td>
+        <td><span class="badge-out">Future</span> 딥러닝 임베딩 벡터 유사도 분석</td>
+      </tr>
+      <tr>
+        <td style="font-weight:bold; text-align:center; background:#f8fafc;">시연 UI</td>
+        <td><span class="badge-in">Target</span> Streamlit 챗봇 + [가드레일 ON/OFF] 토글 + 실시간 차단 로그</td>
+        <td><span class="badge-out">Future</span> 관리자 콘솔 및 RBAC 권한 관리</td>
+      </tr>
+      <tr>
+        <td style="font-weight:bold; text-align:center; background:#f8fafc;">리포팅</td>
+        <td><span class="badge-in">Target</span> 차단 이력 통계 차트 및 진단 리포트 PDF 출력</td>
+        <td><span class="badge-out">Future</span> Splunk, ELK 외부 관제 연동</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+</body>
+</html>

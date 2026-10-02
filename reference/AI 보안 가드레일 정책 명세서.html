@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 보안 가드레일 정책 명세서 — PLN-003</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+<style>
+  :root {
+    --primary: #0f172a;
+    --accent-blue: #2563eb;
+    --accent-red: #dc2626;
+    --border-color: #cbd5e1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Pretendard Variable', 'Pretendard', sans-serif;
+    color: var(--primary);
+    background-color: #ffffff;
+    line-height: 1.5;
+    padding: 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; width: 100%; }
+
+  .header {
+    border-bottom: 2px solid var(--primary);
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+  }
+  .header h1 { font-size: 26px; font-weight: 800; color: var(--primary); }
+  .header-meta { font-size: 14.5px; color: #64748b; margin-top: 4px; }
+
+  .section-title { font-size: 19px; font-weight: 800; color: var(--primary); margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 6px; }
+
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .card {
+    background: #f8fafc; border: 1px solid var(--border-color); border-left: 4px solid #94a3b8;
+    padding: 14px 16px; border-radius: 4px;
+  }
+  .card.code-impl { border-left-color: var(--accent-red); }
+  .card.arch-impl { border-left-color: var(--accent-blue); }
+
+  .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 12.5px; font-weight: 800; margin-bottom: 6px; }
+  .badge.code { background: #fee2e2; color: #991b1b; }
+  .badge.arch { background: #e0f2fe; color: #075985; }
+
+  .card h3 { font-size: 17px; margin-bottom: 4px; font-weight: 800; color: var(--primary); }
+  .card p { font-size: 14.5px; color: #475569; margin-bottom: 6px; }
+  .card ul { padding-left: 16px; font-size: 14.5px; color: #334155; margin: 0; }
+  .card li { margin-bottom: 3px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>OWASP Top 10 기반 AI 보안 가드레일 정책 명세서 (PLN-003)</h1>
+    <div class="header-meta">실시간 가드레일 개발 영역 4개(LLM01, 02, 06, 07) 및 시스템 아키텍처 정책 6개</div>
+  </div>
+
+  <div class="section-title">1. 실시간 가드레일 엔진 개발 대상 (핵심 4대 위협)</div>
+  <div class="card-grid">
+    <div class="card code-impl">
+      <span class="badge code">Input Guardrail (SEC-001/002)</span>
+      <h3>[LLM01] 프롬프트 인젝션 (Prompt Injection)</h3>
+      <p>탈옥(Jailbreak) 키워드 및 시스템 명령 무력화 시도 실시간 차단</p>
+      <ul>
+        <li>Base64 디코딩 및 유니코드 정규화를 통한 난독화 해제 후 검사</li>
+        <li>정규식 기반 인젝션 패턴 탐지 시 즉시 <code>HTTP 403 Forbidden</code> 반환</li>
+      </ul>
+    </div>
+    <div class="card code-impl">
+      <span class="badge code">Output Guardrail (SEC-004)</span>
+      <h3>[LLM02] 불안전한 출력 처리 (Insecure Output Handling)</h3>
+      <p>응답 내 악성 스크립트 실행 공격 원천 방어</p>
+      <ul>
+        <li>출력 텍스트 내 HTML/JS 태그(<code>&lt;script&gt;</code>) 무효화</li>
+        <li>악성 셸 커맨드(<code>rm -rf</code> 등) 감지 시 스트리밍 즉시 강제 종료</li>
+      </ul>
+    </div>
+    <div class="card code-impl">
+      <span class="badge code">Output Guardrail (SEC-003)</span>
+      <h3>[LLM06] 민감 정보 노출 (Sensitive Info Disclosure)</h3>
+      <p>PII(개인식별정보) 및 사내 기밀 실시간 치환</p>
+      <ul>
+        <li>주민번호, 전화번호, 이메일, API Key 감지 시 <code>[REDACTED]</code> 마스킹</li>
+      </ul>
+    </div>
+    <div class="card code-impl">
+      <span class="badge code">Dual Guardrail (SEC-001 &amp; SEC-003)</span>
+      <h3>[LLM07] 시스템 지침 노출 (System Prompt Leakage)</h3>
+      <p>미끼 비밀번호 및 System Prompt 유출 차단</p>
+      <ul>
+        <li>기밀 탈취 목적 질의 사전 필터링 및 역할(Role) 구조적 분리</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="section-title">2. 시스템 아키텍처 및 인프라 정책 (6대 환경/운영 방어)</div>
+  <div class="card-grid">
+    <div class="card arch-impl">
+      <span class="badge arch">인프라 / API 설정</span>
+      <h3>[LLM04] 모델 서비스 거부 (Model DoS)</h3>
+      <p>FastAPI Rate Limit 및 프롬프트 길이 제한(최대 1,000자) 적용</p>
+    </div>
+    <div class="card arch-impl">
+      <span class="badge arch">시스템 권한 구조</span>
+      <h3>[LLM08] 과도한 권한 위임 (Excessive Agency)</h3>
+      <p>SLM 모델의 외부 DB/API 쓰기 권한을 원천 차단하고 Read-Only로 제한</p>
+    </div>
+    <div class="card arch-impl">
+      <span class="badge arch">배포 환경 (Air-Gapped)</span>
+      <h3>[LLM10] 모델 도난 (Model Theft)</h3>
+      <p>기업 내부 로컬 환경에 모델 탑재 및 완전 격리 구동</p>
+    </div>
+    <div class="card arch-impl">
+      <span class="badge arch">데이터 파이프라인</span>
+      <h3>[LLM03] 학습 데이터 오염 (Data Poisoning)</h3>
+      <p>런타임 사용자 입력을 모델 재학습 데이터로 사용하지 않음</p>
+    </div>
+    <div class="card arch-impl">
+      <span class="badge arch">공급망 검증</span>
+      <h3>[LLM05] 공급망 취약점 (Supply Chain)</h3>
+      <p>공식 검증 레포지토리(Ollama) 모델만 사용하며 Checksum 무결성 검증</p>
+    </div>
+    <div class="card arch-impl">
+      <span class="badge arch">UI / 프론트엔드</span>
+      <h3>[LLM09] 모델 과의존 (Overreliance)</h3>
+      <p>Streamlit UI 하단에 환각 가능성 알림 경고 문구 상시 표시</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

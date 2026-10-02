@@ -49,3 +49,12 @@ pgdata/
 .DS_Store
 Thumbs.db
 *.swp
+
+# Third-party attack payload corpus (local reference only, D-24)
+reference/PayloadsAllTheThings-master/
+
+# Local TLS / JWT key material
+*.pem
+*.key
+*.crt
+secrets/
