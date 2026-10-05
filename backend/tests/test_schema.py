@@ -23,7 +23,7 @@ EXPECTED_TABLES = {
         "actions",
     },
     "threat_intel": {"rulesets", "rules", "policy_publications"},
-    "audit": {"outbox", "events", "rule_hits", "tool_executions"},
+    "audit": {"outbox", "events", "rule_hits", "tool_executions", "alerts"},
 }
 
 

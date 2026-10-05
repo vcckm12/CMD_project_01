@@ -10,3 +10,4 @@ pyjwt[crypto]==2.15.1
 cryptography==50.0.2
 regex==2026.9.29
 markdown-it-py==4.2.0
+httpx==0.28.1

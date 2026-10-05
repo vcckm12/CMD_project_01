@@ -15,6 +15,7 @@ def main() -> int:
     template = Path(__file__).resolve().parents[1] / ".env.example"
     values = {
         "POSTGRES_PASSWORD": secrets.token_urlsafe(32),
+        "INPUT_FINGERPRINT_KEY": secrets.token_urlsafe(48),
         "AG_OWNER_PASSWORD": secrets.token_urlsafe(32),
         **{f"{r.upper()}_PASSWORD": secrets.token_urlsafe(32) for r in ROLES},
     }

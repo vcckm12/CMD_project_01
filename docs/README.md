@@ -3,7 +3,7 @@
 | 항목 | 기준 |
 |---|---|
 | 문서 번호 / 버전 | DES-000 / 1.1 |
-| 작성일 / 개정일 | 2026-10-02 / 2026-10-02 (1.1: D-14~D-24 반영), Asia/Seoul |
+| 작성일 / 개정일 | 2026-10-02 / 2026-10-02 (1.1: D-14~D-24, 1.2: D-25~D-26 반영), Asia/Seoul |
 | 상태 | 구현 전 제안 설계 — 소스·실행 환경·성능을 확인한 구현 명세가 아님 |
 | 대상 독자 | 백엔드·프론트엔드 개발자, 보안 담당자, DB·운영 담당자 |
 | 시스템 | ai-guardrail-chatbot |
@@ -73,6 +73,8 @@
 | D-21 | ON/OFF 비교는 별도 compose project `lab`(독립 DB·합성 데이터·미끼 비밀)에서만 허용, 운영 빌드는 OFF 설정 시 readiness 실패 | 운영 OFF 금지와 "OFF면 공격 성공 / ON이면 차단·마스킹" 검증 요구를 함께 충족 |
 | D-22 | .65 Ollama 11434는 Windows 방화벽으로 10.10.70.0/24만 허용, 인터넷 공개 금지, 공용 사용에 따른 지연·모델 교체를 readiness·지연 메트릭으로 관측 | 다른 사용자도 쓰는 공유 모델 서버라 .149 단독 허용 불가 |
 | D-23 | 1단계 내부망(사설 CA TLS·hosts) → 2단계 외부 공개(공인 도메인·인증서, Nginx 443만 공개, ops·Ollama·DB 비공개) | 외부 공개 시점의 경계 확정 |
+| D-25 | 정규식 규칙 뒤에 qwen3:8b LLM 판별 단계를 입력·Tool 결과·출력 세 곳에 둔다. 판정은 OR(규칙 또는 판별이 막으면 차단), 판별 실패는 1회 재시도 후 503 | D-12의 "분류 모델은 확장"을 앞당김. 규칙만으로 held-out 탐지율 33.3%였기 때문 |
+| D-26 | 판별 반복 실패는 관제 화면 경보(audit.alerts)로 알린다. 모델 장애(5분 내 3회)와 같은 입력 반복 실패(2회)를 구분하고, 원문 대신 keyed 지문만 저장한다. 외부 알림은 고도화 단계 | 관리자는 시스템을 조치하며 막힌 답변을 승인하지 않음 |
 | D-24 | 공개 GitHub 저장소 `vcckm12/CMD_project_01`의 `v2` 브랜치에서 신규 구성, 기존 MVP의 datasets·화면 디자인만 선별 이전. `.env`·키·인증서·`reference/PayloadsAllTheThings-master`는 커밋 금지 | 기존 MVP(무인증·원문 감사·mock fallback 답변)는 이 설계와 호환되지 않음 |
 
 ## 5. 공통 식별자·상태·기본값
@@ -90,6 +92,8 @@
 
 | 설정명 | 초기 기본값 | 책임 문서 |
 |---|---|---|
+| JUDGE_ENABLED / JUDGE_TIMEOUT | production은 true 고정 / 호출당 20초, 1회 재시도 | DES-006 |
+| INPUT_FINGERPRINT_KEY | 경보용 입력 지문 HMAC 키, production 필수(32자 이상) | DES-006 |
 | GUARDRAIL_ENFORCED | production은 true 고정(그 외 값이면 readiness 실패), lab만 요청별 비교 허용 | DES-006 |
 | MAX_USER_CHARS / MAX_REQUEST_CHARS | 8000 / 32000 | DES-005·006 |
 | MAX_BODY_BYTES / MAX_MESSAGES | 262144 / 40 | DES-005 |

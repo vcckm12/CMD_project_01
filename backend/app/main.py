@@ -15,11 +15,15 @@ from app.config import Settings, get_settings
 from app.context import RequestContextMiddleware
 from app.db.pools import Pools
 from app.errors import install_error_handlers
+from app.guardrails.alerts import AlertMonitor
 from app.guardrails.input_guardrail import InputGuardrailEngine
+from app.guardrails.judge import SafetyJudge
 from app.guardrails.output_guardrail import OutputGuardrailEngine
+from app.guardrails.pipeline import GuardrailPipeline
 from app.guardrails.rule_cache import RuleCache
 from app.security.auth import LoginRateLimiter
 from app.security.tokens import JwtSigner
+from app.services.ollama import OllamaClient
 
 
 def load_fingerprints(path: Path | None) -> frozenset[str]:
@@ -36,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         app.state.pools = Pools(settings.auth_database_url, settings.chat_database_url)
         await app.state.pools.open()
+        app.state.alert_monitor.pool = app.state.pools.chat
         reloader = None
         if app.state.pools.chat is not None:
             # First load happens before serving; afterwards a poller swaps snapshots atomically.
@@ -50,6 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 reloader.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await reloader
+            await app.state.ollama.close()
             await app.state.pools.close()
 
     app = FastAPI(
@@ -69,6 +75,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.output_engine = OutputGuardrailEngine(
         secret_fingerprints=load_fingerprints(settings.secret_fingerprints_file),
         budget_ms=settings.guardrail_budget_ms,
+    )
+    app.state.ollama = OllamaClient(
+        settings.ollama_base_url,
+        settings.ollama_model,
+        num_ctx=settings.ollama_num_ctx,
+        queue_wait_s=settings.ollama_queue_wait_seconds,
+    )
+    app.state.alert_monitor = AlertMonitor(None, settings.input_fingerprint_key.encode("utf-8"))
+    app.state.guardrails = GuardrailPipeline(
+        app.state.input_engine,
+        app.state.output_engine,
+        SafetyJudge(app.state.ollama, timeout_s=settings.judge_timeout_seconds) if settings.judge_enabled else None,
+        app.state.alert_monitor,
     )
     install_error_handlers(app)
     app.add_middleware(RequestContextMiddleware, max_body_bytes=settings.max_body_bytes)

@@ -113,6 +113,7 @@ ERD의 OUTBOX→EVENTS는 `event_id`로 연결한 논리적 관계이며 FK가 �
 | audit.events | request_id, actor_id, session_id, source, api_path, model, status, stage, ruleset_version, input_chars, output_chars, input_ms, output_ms, total_ms, summary_redacted, occurred_at | event_id PK, append-only, stage·status 일관성 |
 | audit.rule_hits | event_id, rule_id, category, stage, action, match_count | 같은 event/rule 1행, 매칭 원문 저장 금지 |
 | audit.tool_executions | id, event_id, action_id, tool_name, outcome, target_id, duration_ms | read/proposed/executed/denied/error, 인자 평문 덤프 금지 |
+| audit.alerts | kind, severity, fingerprint, detail, occurrences, first/last_seen_at, state, acknowledged_by/at | D-26 관제 경보. judge_unavailable / suspicious_input_repeat, kind·지문당 open 1행(partial unique), 원문 없음. migration 0003 |
 
 `total_ms`는 요청 수신부터 outbox commit 완료 직전까지의 서버 처리 시간이며 SSE 전송 시간은 제외한다. `input_ms`는 입력 검사, `output_ms`는 출력 검사 누계다. 실행 검증 지연과 추론 지연은 서비스 메트릭에서 별도 측정한다. 존재하지 않는 단계는 0으로 기록하고 model·ruleset_version은 처리 이전 실패 시 NULL일 수 있다.
 
@@ -462,6 +463,8 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA commerce FROM PUBLIC;
 | 룰 게시 | rule_publisher + rule_reader + audit_ingest | admin JWT와 재인증 필수, 활성 룰 내용은 trigger로 동결 |
 | 감사 worker | audit_worker | commerce 조회·변경 없음 |
 | 관제 조회·PDF | audit_reader | 본문·토큰 데이터 접근 없음 |
+| 경보 기록 | 챗 pool에 alert_writer 추가 | INSERT와 occurrences·last_seen_at·severity UPDATE만, 확인 처리 불가 |
+| 경보 확인 | alert_manager (관제 pool, 관제 단계에서 연결) | state·acknowledged_by·acknowledged_at UPDATE만 |
 | 만료 처리 | maintenance_worker | Scheduler 전용, pending→expired·쿠폰 expired와 system outbox를 같은 transaction에 기록 |
 | 보존 정리 | retention_worker | Scheduler 전용 삭제 작업, UPDATE·outbox 권한 없음, 외부 API 없음 |
 

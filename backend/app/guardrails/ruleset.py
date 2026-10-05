@@ -18,7 +18,7 @@ import regex
 
 from app.guardrails.types import RuleDef
 
-ENGINE_VERSION = "1"
+ENGINE_VERSION = "2"
 MAX_RULES = 128
 POLICY_KEYS = ("max_user_chars", "max_request_chars", "max_output_chars", "max_tool_rounds", "max_tool_calls")
 SERVER_LIMITS: Mapping[str, int] = MappingProxyType(
@@ -136,6 +136,9 @@ DEFAULT_RULES: tuple[RuleDef, ...] = (
     RuleDef("RULE_SEMANTIC_PYTHON_SANDBOX_ESCAPE", "input", "LLM06:2025", "context", "block", priority=53),
     RuleDef("RULE_MULTI_TURN_SECRET_FOLLOWUP", "input", "LLM01:2025", "context", "block", priority=54),
     RuleDef("RULE_INDIRECT_CONTEXT_INJECTION", "input", "LLM01:2025", "context", "block", priority=60),
+    # LLM judge verdicts (D-25); run after every rule above has passed.
+    RuleDef("RULE_LLM_JUDGE_INPUT", "input", "LLM01:2025", "structural", "block", priority=90),
+    RuleDef("RULE_LLM_JUDGE_TOOL", "input", "LLM01:2025", "structural", "block", priority=91),
     # ---------------------------------------------------------------- execution (Tool calls)
     RuleDef("RULE_TOOL_NOT_ALLOWED", "execution", "LLM06:2025", "structural", "block", priority=10),
     RuleDef("RULE_TOOL_ARGUMENT_INVALID", "execution", "LLM06:2025", "structural", "block", priority=11),
@@ -150,6 +153,7 @@ DEFAULT_RULES: tuple[RuleDef, ...] = (
     RuleDef("RULE_REVERSE_SHELL_OUTPUT", "output", "LLM05:2025", "regex", "block", priority=4, flags="i",
             pattern=r"(?:/dev/tcp/|(?:nc|ncat)\s{1,10}.{0,80}\s-e\s|socket\.connect\s{0,8}\()"),
     RuleDef("RULE_RCE_COMMAND_OUTPUT", "output", "LLM05:2025", "context", "block", priority=5),
+    RuleDef("RULE_LLM_JUDGE_OUTPUT", "output", "LLM02:2025", "structural", "block", priority=6),
     # ---------------------------------------------------------------- output: masking (priority = marker precedence)
     RuleDef("RULE_SECRET", "output", "LLM02:2025", "regex", "mask", marker="[REDACTED_SECRET]", priority=10, flags="i",
             pattern=r"(?:api[_ -]?key|master[_ -]?key|db[_ -]?password|password|비밀번호|관리자키)\s{0,8}[:=]\s{0,8}[\"']?(?P<value>[^\s\"'<>]{4,128})"),

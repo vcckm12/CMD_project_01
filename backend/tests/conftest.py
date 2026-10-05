@@ -117,12 +117,18 @@ def active_ruleset():
     import asyncio
 
     from app.guardrails import rule_store
+    from app.guardrails.ruleset import RulesetInvalid
 
     async def ensure():
         rules_url = _dsn("ag_rules", os.environ["TEST_RULES_PASSWORD"])
         async with await psycopg.AsyncConnection.connect(rules_url) as conn:
-            if await rule_store.active_id(conn) is not None:
-                return
+            current = await rule_store.active_id(conn)
+            if current is not None:
+                try:
+                    await rule_store.load_active(conn)
+                    return
+                except RulesetInvalid:
+                    pass  # e.g. published before the current engine added required rules: publish defaults over it
             with psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True) as su:
                 actor = su.execute(
                     "INSERT INTO commerce.users (login_email, password_hash, role)"
@@ -132,7 +138,7 @@ def active_ruleset():
             draft = await rule_store.create_draft(conn, label=f"test-boot-{uuid.uuid4().hex[:8]}", actor_id=actor)
             assert await rule_store.validate_draft(conn, draft) == []
             await rule_store.publish(
-                conn, ruleset_id=draft, expected_active_id=None, actor_id=actor, request_id=uuid.uuid4()
+                conn, ruleset_id=draft, expected_active_id=current, actor_id=actor, request_id=uuid.uuid4()
             )
 
     asyncio.run(ensure())
@@ -146,6 +152,7 @@ def settings(jwt_key_file, active_ruleset):
         auth_database_url=_dsn("ag_auth", os.environ["TEST_AUTH_PASSWORD"]),
         chat_database_url=_dsn("ag_chat", os.environ["TEST_CHAT_PASSWORD"]),
         jwt_private_key_file=jwt_key_file,
+        input_fingerprint_key="test-fingerprint-key-" + "x" * 16,
     )
 
 

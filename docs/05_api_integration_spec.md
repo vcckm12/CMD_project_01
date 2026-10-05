@@ -57,7 +57,7 @@ operator/admin 검증 챗에는 합성 컨텍스트만 제공하고 실제 고�
 | 422 | VALIDATION_ERROR | 필드·길이·인자·미지원 role 오류 |
 | 429 | RATE_LIMITED | Retry-After 정수 초 제공 |
 | 502 / 504 | INFERENCE_UNAVAILABLE / INFERENCE_TIMEOUT | 모델 연결 / deadline 실패 |
-| 503 | AUDIT_UNAVAILABLE, RULESET_UNAVAILABLE, SERVICE_NOT_READY, GUARDRAIL_TIMEOUT | 안전한 처리 기반 미준비·검사 예산 초과 |
+| 503 | AUDIT_UNAVAILABLE, RULESET_UNAVAILABLE, SERVICE_NOT_READY, GUARDRAIL_TIMEOUT, GUARDRAIL_UNAVAILABLE | 안전한 처리 기반 미준비·검사 예산 초과·AI 판별 실패(Retry-After 포함, "잠시 후 다시 시도") |
 
 429는 사용자·IP 예산 외에 서버 추론 대기열(동시 1건, 대기 30초 초과)에서도 발생한다. 인증 성공 이전에 반환하는 401·413·429·400은 감사 outbox에 기록하지 않고 access log·메트릭에만 남긴다(D-19). 비밀·토큰·매칭 공격 원문·stack trace·DB error detail은 오류 응답에 포함하지 않는다. 운영 가드레일 해제 필드는 어떤 API에도 없다. 감사 저장 실패는 다른 결과보다 우선하여 503으로 반환한다.
 

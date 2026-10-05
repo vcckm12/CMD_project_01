@@ -20,7 +20,7 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 # Login role -> NOLOGIN group roles it inherits (DES-002 §5 connection pools).
 LOGIN_ROLES: dict[str, tuple[str, ...]] = {
     "ag_auth": ("auth_service", "audit_ingest", "shop_writer"),
-    "ag_chat": ("shop_reader", "shop_writer", "rule_reader", "audit_ingest"),
+    "ag_chat": ("shop_reader", "shop_writer", "rule_reader", "audit_ingest", "alert_writer"),
     "ag_rules": ("rule_publisher", "rule_reader", "audit_ingest"),
     "ag_audit_reader": ("audit_reader",),
     "ag_audit_worker": ("audit_worker",),

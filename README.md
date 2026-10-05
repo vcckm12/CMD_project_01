@@ -12,6 +12,7 @@
 | PostgreSQL 17 스키마·역할·권한 + 통합 테스트 | 완료 |
 | 인증(JWT·refresh·client token) | 완료 |
 | 입력·출력 가드레일 엔진·룰셋 게시 | 완료 (탐지율은 [DES-007 §8](docs/07_verification_operations_plan.md#8-문서-검증-기록) 참고) |
+| AI 판별(입력·Tool·출력)·관제 경보 | 완료 (held-out v2: 입력 100%, 출력 83%, 지연 p50 1.7초) |
 | 챗 파이프라인·Ollama 연동 | 예정 |
 | Tool·변경 승인 | 예정 |
 | 감사 worker·스케줄러 | 예정 |
