@@ -121,7 +121,8 @@ DES-006 1.1의 초기 패턴만으로는 개발 측정에서 공격 탐지율이
 
 | 위치 | 판별 대상 | rule_id / OWASP | 차단 라벨 |
 |---|---|---|---|
-| 입력 | 마지막 사용자 메시지 + 클라이언트 system/RAG 메시지 | RULE_LLM_JUDGE_INPUT / LLM01:2025 | ATTACK |
+| 입력(고객) | 마지막 사용자 메시지 | RULE_LLM_JUDGE_INPUT / LLM01:2025 | ATTACK |
+| 입력(클라이언트 참고자료, D-29) | 클라이언트 system/RAG 메시지. 일반 지시는 SAFE, 공격 목적만 차단. 고객 메시지보다 먼저 판별 | RULE_LLM_JUDGE_INPUT / LLM01:2025 | ATTACK |
 | Tool 결과 | 모델에 다시 넣기 전 Tool 결과 | RULE_LLM_JUDGE_TOOL / LLM01:2025 | ATTACK |
 | 출력 | 마스킹 전 원본 답변(의미 기반 유출·역할 이탈) | RULE_LLM_JUDGE_OUTPUT / LLM02:2025 | LEAK |
 

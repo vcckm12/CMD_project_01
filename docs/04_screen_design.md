@@ -232,7 +232,7 @@ Base URL은 `https://shop.example.internal/v1`, 모델은 qwen3:8b를 안내한�
 | OWASP 차트 | rule_hits 합계, 이벤트 수와 다른 단위 표시 |
 | 지연 차트 | total_ms의 P95, 모델 속도·가드레일 지연과 구분 |
 | 적재 지연 | as_of·ingestion_lag_seconds, worker 지연 시 경고 |
-| 이벤트 row | event_id로 SCR-O03, request_id·session_id 복사 가능 |
+| 이벤트 row | event_id로 SCR-O03, 세션 ID 칸을 표시해 세션 필터·보고서에 사용. 최신 50건을 10초마다 갱신, 더 보기 중에는 정지·새로고침 버튼(D-32) |
 | 건강 상태 | DB·모델·룰셋·backlog, 내부 credential·원문 error 없음 |
 | 미수집·오류 | 데이터 없음과 조회 실패를 다른 상태로 표시 |
 
@@ -247,12 +247,13 @@ Base URL은 `https://shop.example.internal/v1`, 모델은 qwen3:8b를 안내한�
 │ status / stage / ruleset_version / model                │
 │ input_ms / output_ms / total_ms                         │
 │ 마스킹 요약                                            │
-│ 룰 ID | OWASP 2025 | 단계 | action | match_count         │
+│ 룰 ID | 설명 | OWASP 2025 | 단계 | action | match_count  │
 │ Tool | outcome | target_id | action_id | duration_ms    │
+│ (LAB만) 차단된 입력 원문 — 일반 텍스트 표시             │
 └─────────────────────────────────────────────────────────┘
 ```
 
-AUDIT-02를 사용하며 raw 입력·raw 응답·token·비밀 매칭값을 표시하지 않는다. rule_id와 ruleset_version은 SCR-O04의 해당 불변 버전으로 연결한다. action_id는 실행 이력 식별 정보로만 표시하고 관리자가 고객 승인을 대신하는 버튼을 두지 않는다. actor_id는 이메일 대신 내부 식별자로 표시하고 회원정보 API와 자동 결합하지 않는다.
+AUDIT-02를 사용하며 raw 입력·raw 응답·token·비밀 매칭값을 표시하지 않는다. 예외로 LAB(APP_ENV=lab)에서는 차단된 채팅 요청의 입력을 LAB-04로 받아 markdown·HTML로 해석하지 않는 일반 텍스트로 보여 준다(합성 데이터 전용, D-30). rule_id와 ruleset_version은 SCR-O04의 해당 불변 버전으로 연결한다. action_id는 실행 이력 식별 정보로만 표시하고 관리자가 고객 승인을 대신하는 버튼을 두지 않는다. actor_id는 이메일 대신 내부 식별자로 표시하고 회원정보 API와 자동 결합하지 않는다.
 
 ## 10. SCR-O04 — 규칙·정책 관리
 

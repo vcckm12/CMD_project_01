@@ -59,6 +59,24 @@ docker compose up -d --wait nginx
 
 접속할 PC에서는 `secrets/tls/ca.crt`를 신뢰할 수 있는 루트 인증서로 설치합니다. 그리고 hosts 파일에 `10.10.70.149 shop.example.internal ops.example.internal`을 추가합니다. 이후 `https://shop.example.internal`로 접속합니다. 브라우저 E2E: `scripts/e2e_web.py`(파일 머리말 참고).
 
+### 같은 대역의 다른 PC에서 접속·시연
+
+1. hosts(관리자 메모장, `C:\Windows\System32\drivers\etc\hosts`)에 `10.10.70.149 shop.example.internal ops.example.internal` 추가
+2. `ca.crt` **한 파일만** 복사(`ca.key`·`server.key`는 복사 금지) 후 관리자 PowerShell:
+   `Import-Certificate -FilePath <경로>\ca.crt -CertStoreLocation Cert:\LocalMachine\Root` → 브라우저 재시작(Firefox는 별도 가져오기)
+3. 시연은 LAB 기준: 쇼핑몰 `https://shop.example.internal:8443`, 관제 `https://ops.example.internal:8443`(LAB DB는 운영과 분리되어 서로의 기록이 보이지 않음)
+   - 상품 검색 → 상품명·가격 안내, "장바구니에 담아줘" → 확인 화면, 공격 문장 → 🛡️ 차단
+   - 관제 대시보드 목록에서 차단 건의 event_id → 감사 상세(규칙 설명 + LAB 전용 입력 원문), "LAB ON/OFF 비교"에서 A/B 실행
+   - 고객 계정의 합성 주문·쿠폰: `docker compose --env-file .env.lab run --rm migrate python -m app.cli.seed --customer-email <이메일>`
+4. 인증서는 `gen_certs.py`로 다시 만들거나 도메인을 바꿀 때만 다시 배포합니다.
+
+### AnythingLLM 연결
+
+- 해당 PC 환경변수 `NODE_EXTRA_CA_CERTS=<ca.crt 경로>` 지정 후 AnythingLLM 완전 종료·재시작(없으면 `Connection error`)
+- LLM Provider는 **Generic OpenAI**(Ollama 아님): Base URL `https://shop.example.internal/v1`(LAB은 `:8443/v1`), API Key는 쇼핑몰에서 발급한 `gct_…` 토큰(환경별 발급), Model `qwen3:8b`, Token context window 8192, Max Tokens 512 이하
+- 워크스페이스 ⚙ → Chat Settings → 채팅 모드 **Chat**(Agent/Automatic은 `tools`를 보내 400). Workspace LLM 설정이 따로 있으면 System default로
+- 답변은 CPU 모델이라 20~50초 걸릴 수 있습니다.
+
 개발용 합성 데이터와 룰셋:
 
 ```bash
