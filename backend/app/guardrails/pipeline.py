@@ -23,6 +23,7 @@ from app.guardrails.types import GuardrailTimeout, Hit, InspectionResult, Saniti
 
 JUDGE_RULES: Mapping[Target, str] = {
     "input": "RULE_LLM_JUDGE_INPUT",
+    "context": "RULE_LLM_JUDGE_INPUT",  # same input-stage rule; only the judging criteria differ
     "tool": "RULE_LLM_JUDGE_TOOL",
     "output": "RULE_LLM_JUDGE_OUTPUT",
 }
@@ -86,14 +87,20 @@ class GuardrailPipeline:
         snapshot: RuleSnapshot,
         judge_texts: Sequence[str] | None = None,
     ) -> tuple[InspectionResult, JudgeTiming]:
-        """`judge_texts` defaults to the last user message plus client system/context messages."""
+        """`judge_texts` defaults to the last user message (customer criteria); client system/context
+        messages are judged separately with the context criteria (attack goals only)."""
         result = await self._rules_input(messages, risk_signals, snapshot)
         if not result.allowed:
             return result, JudgeTiming()
+        context_texts: list[str] = []
         if judge_texts is None:
             users = [m.content for m in messages if m.role == "user"]
-            judge_texts = [m.content for m in messages if m.role in ("system", "context")] + users[-1:]
-        hit, timing = await self._judge("input", judge_texts, snapshot)
+            judge_texts = users[-1:]
+            context_texts = [m.content for m in messages if m.role in ("system", "context")]
+        hit, timing = await self._judge("context", context_texts, snapshot)
+        if hit is None:
+            hit, user_timing = await self._judge("input", judge_texts, snapshot)
+            timing = JudgeTiming(timing.judge_ms + user_timing.judge_ms, timing.judge_calls + user_timing.judge_calls)
         if hit is None:
             return result, timing
         return _blocked_input(result, hit), timing

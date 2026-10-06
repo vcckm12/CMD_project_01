@@ -167,7 +167,7 @@ class FakeModel:
 
     def __init__(self):
         self.replies: list = []
-        self.judge = {"input": "SAFE", "tool": "SAFE", "output": "SAFE"}
+        self.judge = {"input": "SAFE", "context": "SAFE", "tool": "SAFE", "output": "SAFE"}
         self.chat_calls: list[dict] = []
         self.judge_calls: list[dict] = []
         self.prompt_eval_count = 100
@@ -183,7 +183,12 @@ class FakeModel:
         if body.get("format") == "json":
             self.judge_calls.append(body)
             system = body["messages"][0]["content"]
-            target = "output" if "ASSISTANT ANSWER" in system else "tool" if "TOOL RESULT" in system else "input"
+            target = (
+                "output" if "ASSISTANT ANSWER" in system
+                else "tool" if "TOOL RESULT" in system
+                else "context" if "CLIENT CONTEXT" in system
+                else "input"
+            )
             label = self.judge[target]
             if isinstance(label, int):
                 return httpx.Response(label)
