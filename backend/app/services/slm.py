@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -103,6 +104,7 @@ class SLMService:
         *,
         temperature: float | None = None,
         num_predict: int | None = None,
+        progress: Callable[..., Awaitable[None]] | None = None,
     ) -> SlmResult:
         specs = available_tools(ctx)
         schemas = [t.schema() for t in specs]
@@ -160,6 +162,8 @@ class SLMService:
                         ToolExecution(tool_name=str(name)[:64] if name else "unknown", outcome="denied", duration_ms=0)
                     )
                     return block("execution", _hit(snapshot, decision.rule_id, "execution"))
+                if progress is not None:
+                    await progress("tool", name=decision.spec.name)
                 started = time.perf_counter()
                 if decision.spec.requires_confirmation:
                     try:

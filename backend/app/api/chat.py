@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from typing import Annotated
@@ -115,10 +117,15 @@ def _native_body(request: Request, ctx: AuthContext, outcome: ChatOutcome) -> di
     }
 
 
-async def _native_sse(body: dict) -> AsyncIterator[bytes]:
-    def event(name: str, data: dict) -> bytes:
-        return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
+log = logging.getLogger("app.chat")
 
+
+def _event(name: str, data: dict) -> bytes:
+    return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
+
+
+async def _native_sse(body: dict) -> AsyncIterator[bytes]:
+    event = _event
     yield event("meta", {"request_id": body["request_id"], "status": body["status"], "session_id": body["session_id"]})
     content = body["content"]
     for i in range(0, len(content), SSE_CHUNK):  # already sanitized text, split on code points
@@ -147,14 +154,52 @@ async def chat_completions(request: Request, body: ChatRequest, ctx: Annotated[A
         stored_context=history,
         temperature=NATIVE_TEMPERATURE,
     )
+    if body.stream:
+        return StreamingResponse(
+            _streamed(request, ctx, service, turn),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
     outcome = await service.run(turn)
     payload = _native_body(request, ctx, outcome)
     if outcome.status == "blocked":
         return JSONResponse(payload, status_code=403)
-    if body.stream:
-        return StreamingResponse(
-            _native_sse(payload),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-        )
     return JSONResponse(payload)
+
+
+async def _streamed(request: Request, ctx: AuthContext, service: ChatService, turn: ChatTurn) -> AsyncIterator[bytes]:
+    """Stream: progress events while the turn runs, then meta/delta/done (blocked included) or one error event.
+
+    The response is already 200 once progress starts, so a block arrives as done.status=blocked and a failure
+    as `event: error` with the fixed code and message. A client disconnect never cancels the turn: it finishes
+    and is audited like a non-streamed request.
+    """
+    queue: asyncio.Queue[dict] = asyncio.Queue()
+
+    async def progress(stage: str, **data) -> None:
+        await queue.put({"stage": stage, **data})
+
+    turn.progress = progress
+    task = asyncio.create_task(service.run(turn))
+    task.add_done_callback(lambda t: t.cancelled() or t.exception())  # mark the exception as retrieved
+    while not task.done() or not queue.empty():
+        getter = asyncio.ensure_future(queue.get())
+        done, _ = await asyncio.wait({getter, task}, return_when=asyncio.FIRST_COMPLETED)
+        if getter in done:
+            yield _event("progress", getter.result())
+        else:
+            getter.cancel()
+    try:
+        outcome = task.result()
+    except ApiError as exc:
+        error = {"status": exc.status, "code": exc.code, "message": FIXED_MESSAGES[exc.code]}
+        yield _event("error", {**error, "request_id": request.state.request_id,
+                               "retry_after": exc.headers.get("Retry-After")})  # fmt: skip
+        return
+    except Exception:  # noqa: BLE001 - headers are sent; report a fixed error instead of a broken stream
+        log.exception("streamed chat turn failed")
+        yield _event("error", {"status": 500, "code": "INTERNAL_ERROR", "message": FIXED_MESSAGES["INTERNAL_ERROR"],
+                               "request_id": request.state.request_id, "retry_after": None})  # fmt: skip
+        return
+    async for chunk in _native_sse(_native_body(request, ctx, outcome)):
+        yield chunk

@@ -203,7 +203,7 @@ session_id와 prompt는 필수다. prompt는 비어 있지 않은 문자열·최
 
 ### 3.3 Native SSE
 
-입력·출력·감사 영속화가 모두 끝나기 전에는 HTTP SSE headers를 열지 않는다. 따라서 입력 차단은 JSON 403, 장애는 일반 JSON 오류로 반환할 수 있다. stream=true 정상 응답은 `Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no`다. raw 모델 토큰의 실시간 전송이 아니라 **검사 완료된 답변의 분할 전송**이다.
+**변경(2026-10-06, D-35):** stream=true는 처리 시작과 함께 200 SSE를 열고, 검사·생성이 진행되는 동안 단계 이벤트 `progress`를 보낸다(`{"stage":"input_check"}`, `generating`(+`retry`), `tool`(+`name`), `output_check`; 단계 이름만, 텍스트·인자 없음). 따라서 stream=true에서는 차단도 200이며 `done.status="blocked"`와 고정 거절 문구로, 장애는 `event: error` `{status, code, message, request_id, retry_after}` 하나로 끝난다. 인증·세션 확인 실패는 스트림 전이므로 일반 JSON 오류다. 답변 본문(delta)은 여전히 입력·출력·감사가 모두 끝난 뒤에만 보낸다. stream=false는 기존대로 차단 403. 연결이 끊겨도 요청은 끝까지 처리·감사된다. stream=true 응답은 `Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no`다. raw 모델 토큰의 실시간 전송이 아니라 **검사 완료된 답변의 분할 전송**이다.
 
 ```text
 event: meta

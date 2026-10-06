@@ -107,3 +107,51 @@ export async function logout() {
 export const get = (path) => request("GET", path).then((r) => r.data);
 export const post = (path, body, headers) => request("POST", path, { body, headers });
 export const del = (path) => request("DELETE", path);
+
+// Chat with stage events (DES-005 §3.2 stream): onProgress gets {stage, ...}; resolves to the same body as the
+// non-streamed answer (blocked included) or throws ApiError for an `event: error` or a non-stream response.
+export async function streamChat(path, body, onProgress) {
+  const open = () => {
+    const headers = { Accept: "text/event-stream", "Content-Type": "application/json" };
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+    return fetch(path, { method: "POST", headers, credentials: "same-origin", body: JSON.stringify({ ...body, stream: true }) });
+  };
+  let response = await open();
+  if (!(response.headers.get("content-type") || "").startsWith("text/event-stream")) {
+    let payload = await response.json().catch(() => null);
+    if (response.status === 401 && payload?.error?.code === "TOKEN_EXPIRED" && (await refresh())) {
+      response = await open();
+      if (!(response.headers.get("content-type") || "").startsWith("text/event-stream")) {
+        payload = await response.json().catch(() => null);
+        throw new ApiError(response.status, payload, response.headers);
+      }
+    } else {
+      throw new ApiError(response.status, payload, response.headers);
+    }
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const result = { content: "" };
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    let cut;
+    while ((cut = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, cut);
+      buffer = buffer.slice(cut + 2);
+      const name = (block.match(/^event: (.+)$/m) || [])[1];
+      const data = JSON.parse((block.match(/^data: (.+)$/m) || [, "null"])[1]);
+      if (name === "progress") onProgress(data);
+      else if (name === "meta") Object.assign(result, data);
+      else if (name === "delta") result.content += data.content;
+      else if (name === "done") return Object.assign(result, data);
+      else if (name === "error") {
+        const headers = new Headers({ "x-request-id": data.request_id || "" });
+        if (data.retry_after) headers.set("retry-after", String(data.retry_after));
+        throw new ApiError(data.status, { error: { code: data.code, message: data.message } }, headers);
+      }
+    }
+    if (done) throw new ApiError(502, null, response.headers); // stream ended without done/error
+  }
+}

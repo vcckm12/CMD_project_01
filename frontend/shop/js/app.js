@@ -185,18 +185,27 @@ async function chatPanel() {
       bubble("me", h("p", { text: prompt }));
       input.value = "";
       counter.textContent = "0/8000";
-      const waiting = h("p", { class: "muted" }, "답변을 만들고 안전성을 확인하는 중입니다…");
+      const stageText = h("span", {}, "요청을 보내는 중");
+      const clock = h("span", {}, "");
+      const waiting = h("p", { class: "muted", role: "status", "aria-live": "polite" }, stageText, clock);
       bubble("bot", waiting, "pending");
+      const started = Date.now();
+      const timer = setInterval(() => {
+        clock.textContent = ` · ${Math.round((Date.now() - started) / 1000)}초`;
+      }, 1000);
       try {
         const id = await ensureSession();
-        const r = await api.post("/api/v1/chat/completions", { session_id: id, prompt });
+        const body = await api.streamChat("/api/v1/chat/completions", { session_id: id, prompt }, (p) => {
+          stageText.textContent = stageLabel(p);
+        });
         waiting.parentElement.remove();
-        renderReply(bubble, r.data);
+        renderReply(bubble, body);
       } catch (err) {
         waiting.parentElement.remove();
         if (err.status === 404) sessionStorage.removeItem("chat_session");
         bubble("bot", errorBox(err), "error");
       } finally {
+        clearInterval(timer);
         send.disabled = false;
         input.focus();
       }
@@ -213,6 +222,21 @@ async function chatPanel() {
   return h("section", { class: "card chat", "aria-labelledby": "chat-title" },
     h("div", { class: "row between" }, h("h2", { id: "chat-title" }, "AI 도우미"), reset),
     h("p", { class: "muted small" }, "서버에는 개인정보를 가린 대화만 보관됩니다."), log, form);
+}
+
+const TOOL_LABELS = {
+  search_products: "상품 검색", list_orders: "주문 목록", get_order: "주문 상세", get_cart: "장바구니",
+  list_coupons: "쿠폰", set_cart_item: "장바구니 변경 제안", remove_cart_item: "장바구니 삭제 제안",
+  apply_coupon: "쿠폰 적용 제안", remove_coupon: "쿠폰 해제 제안",
+};
+
+// Server stage events (no text): each guardrail layer is shown as it runs.
+function stageLabel(p) {
+  if (p.stage === "input_check") return "① 질문 보안 검사 중";
+  if (p.stage === "generating") return p.retry ? "② 답변을 다시 만드는 중" : "② 답변 생성 중";
+  if (p.stage === "tool") return `② ${TOOL_LABELS[p.name] || "정보"} 조회·검사 중`;
+  if (p.stage === "output_check") return "③ 답변 보안 검사 중";
+  return "처리 중";
 }
 
 function renderReply(bubble, body) {

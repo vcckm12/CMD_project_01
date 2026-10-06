@@ -299,6 +299,37 @@ def tool_call(name, arguments):
     return {"content": "", "tool_calls": [{"function": {"name": name, "arguments": arguments}}]}
 
 
+def test_claimed_change_without_tool_is_regenerated(client, shopper, fake_model):
+    product = new_product(price=9000, name="흉내 셔츠")
+    session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]
+    fake = "장바구니 변경 확인이 필요합니다: 흉내 셔츠 수량 0개 → 1개. 확인 화면에서 승인해야 적용됩니다."
+    fake_model.replies = [{"content": fake}, tool_call("set_cart_item", {"product_id": product, "quantity": 1})]
+    r = client.post("/api/v1/chat/completions", json={"session_id": session, "prompt": "흉내 셔츠 1개 담아줘"},
+                    headers=bearer(shopper["token"]))  # fmt: skip
+    body = r.json()
+    assert body["status"] == "confirmation_required" and body["action"] is not None
+    retry = fake_model.chat_calls[-1]["messages"]
+    assert retry[-1]["role"] == "system" and "변경 도구를 호출" in retry[-1]["content"]
+
+
+def test_claimed_change_twice_falls_back(client, shopper, fake_model):
+    session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]
+    fake_model.replies = [{"content": "장바구니에 셔츠를 담았습니다."}, {"content": "쿠폰을 적용했습니다!"}]
+    r = client.post("/api/v1/chat/completions", json={"session_id": session, "prompt": "셔츠 담아줘"},
+                    headers=bearer(shopper["token"]))  # fmt: skip
+    body = r.json()
+    assert body["status"] == "success" and body["action"] is None and "변경 제안을 만들지 못했습니다" in body["content"]
+    assert len(fake_model.chat_calls) == 2 and cart(client, shopper)["items"] == []
+
+
+def test_ordinary_answer_is_not_regenerated(client, shopper, fake_model):
+    session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]
+    fake_model.replies = [{"content": "장바구니에 담으시려면 상품명과 수량을 알려 주세요."}]
+    r = client.post("/api/v1/chat/completions", json={"session_id": session, "prompt": "어떻게 담아?"},
+                    headers=bearer(shopper["token"]))  # fmt: skip
+    assert r.json()["status"] == "success" and len(fake_model.chat_calls) == 1
+
+
 def test_chat_change_tool_creates_pending_action_only(client, shopper, fake_model):
     product = new_product(price=9000, name="채팅 셔츠")
     session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]

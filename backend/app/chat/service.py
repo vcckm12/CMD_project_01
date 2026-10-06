@@ -8,9 +8,11 @@ returned to the client before that commit; a failed commit returns 503 instead o
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections import defaultdict, deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from psycopg.types.json import Jsonb
@@ -31,6 +33,18 @@ from app.shop import actions
 
 MAX_CONTEXT_MESSAGES = 40
 MAX_STORED_CHARS = 2000
+
+# A pending change is described only by server text after a change Tool call (proposal_message).
+# Model text that claims a confirmation screen or a finished cart/coupon change without one is false.
+CLAIMED_CHANGE = re.compile(
+    r"변경\s*확인이\s*필요|확인\s*화면에서\s*승인|승인해야\s*적용"
+    r"|(?:장바구니|쿠폰)[^.!?\n]{0,40}(?:담았|추가했|넣었|변경했|바꿨|삭제했|뺐|적용했|해제했|넣어\s*드렸|빼\s*드렸)"
+)
+CLAIMED_CHANGE_RETRY_NOTE = (
+    "직전 답변 초안은 변경 도구를 호출하지 않고 장바구니·쿠폰 변경이나 확인 화면을 언급했습니다. 변경이 필요하면 "
+    "반드시 변경 도구를 호출하고, 도구를 호출하지 않을 때는 변경이나 확인 화면을 언급하지 마세요."
+)
+CLAIMED_CHANGE_FALLBACK = "변경 제안을 만들지 못했습니다. 원하시는 상품과 수량(또는 쿠폰)을 다시 말씀해 주세요."
 
 REFUSALS = {
     "input": "🛡️ 요청을 보안 정책에 따라 처리할 수 없습니다.",
@@ -66,6 +80,12 @@ class ChatTurn:
     stored_context: list[dict] = field(default_factory=list)
     temperature: float | None = None
     max_tokens: int | None = None
+    # Streaming clients get stage events (input_check, generating, tool, output_check); stages only, no text.
+    progress: Callable[..., Awaitable[None]] | None = None
+
+    async def report(self, stage: str, **data) -> None:
+        if self.progress is not None:
+            await self.progress(stage, **data)
 
 
 @dataclass
@@ -202,6 +222,7 @@ class ChatService:
         masked = False
         signals = turn.risk_signals
         try:
+            await turn.report("input_check")
             inspection, _ = await self.pipeline.check_input(turn.inspect, turn.risk_signals, snapshot, turn.judge_texts)
             input_ms = inspection.input_ms
             hits.extend(inspection.hits)
@@ -210,19 +231,36 @@ class ChatService:
                 stage = "input"
             else:
                 slm: SLMService = self.state.slm
-                generated = await slm.generate(
-                    turn.ctx, turn.system_prompt, turn.history, turn.model_new, snapshot, deadline,
-                    temperature=turn.temperature, num_predict=turn.max_tokens,
-                )  # fmt: skip
-                hits.extend(generated.hits)
-                tool_execs.extend(generated.tool_executions)
-                prompt_tokens, completion_tokens = generated.prompt_tokens, generated.completion_tokens
+                model_new = turn.model_new
+                for attempt in range(2):
+                    await turn.report("generating", retry=attempt > 0)
+                    generated = await slm.generate(
+                        turn.ctx, turn.system_prompt, turn.history, model_new, snapshot, deadline,
+                        temperature=turn.temperature, num_predict=turn.max_tokens, progress=turn.progress,
+                    )  # fmt: skip
+                    hits.extend(generated.hits)
+                    tool_execs.extend(generated.tool_executions)
+                    prompt_tokens += generated.prompt_tokens
+                    completion_tokens += generated.completion_tokens
+                    claimed = (
+                        turn.ctx.role == "customer"
+                        and not generated.blocked_stage
+                        and generated.proposal is None
+                        and CLAIMED_CHANGE.search(generated.content or "") is not None
+                    )
+                    if not claimed:
+                        break
+                    if attempt == 0:
+                        model_new = [*turn.model_new, {"role": "system", "content": CLAIMED_CHANGE_RETRY_NOTE}]
+                    else:
+                        generated.content = CLAIMED_CHANGE_FALLBACK
                 proposal = generated.proposal
                 if generated.blocked_stage:
                     stage = generated.blocked_stage
                 elif proposal is not None:
                     content = proposal_message(proposal.preview)  # server text; no model output to inspect
                 else:
+                    await turn.report("output_check")
                     sanitized, _ = await self.pipeline.check_output(generated.content, snapshot)
                     output_ms = sanitized.output_ms
                     hits.extend(sanitized.hits)
