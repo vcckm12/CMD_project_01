@@ -54,7 +54,7 @@ operator/admin 검증 챗에는 합성 컨텍스트만 제공하고 실제 고�
 | 409 | SESSION_BUSY, ACTION_STALE, ACTION_TERMINAL, IDEMPOTENCY_CONFLICT, EMAIL_UNAVAILABLE | 동시성·terminal 충돌, 회원가입 이메일 중복 |
 | 410 | ACTION_EXPIRED | 만료한 본인 승인 |
 | 413 | BODY_TOO_LARGE | body 262,144 bytes 초과 |
-| 422 | VALIDATION_ERROR | 필드·길이·인자·미지원 role 오류 |
+| 422 | VALIDATION_ERROR, PROMPT_TOO_LONG | 필드·길이·인자·미지원 role 오류, 질문이 모델 문맥 한도를 넘음(D-27) |
 | 429 | RATE_LIMITED | Retry-After 정수 초 제공 |
 | 502 / 504 | INFERENCE_UNAVAILABLE / INFERENCE_TIMEOUT | 모델 연결 / deadline 실패 |
 | 503 | AUDIT_UNAVAILABLE, RULESET_UNAVAILABLE, SERVICE_NOT_READY, GUARDRAIL_TIMEOUT, GUARDRAIL_UNAVAILABLE | 안전한 처리 기반 미준비·검사 예산 초과·AI 판별 실패(Retry-After 포함, "잠시 후 다시 시도") |

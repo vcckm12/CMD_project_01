@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -13,6 +15,21 @@ router = APIRouter(prefix="/api/v1/health", tags=["health"])
 @router.get("/live")
 async def live() -> dict[str, str]:
     return {"status": "alive"}
+
+
+MODEL_CHECK_TTL_S = 30.0
+
+
+async def _model_ok(request: Request) -> bool:
+    """Model present with the pinned digest (D-14); cached so health probes do not load the model server."""
+    state = request.app.state.model_check
+    now = time.monotonic()
+    if now - state["checked_at"] < MODEL_CHECK_TTL_S:
+        return state["ok"]
+    digest = await request.app.state.ollama.model_digest()
+    expected = request.app.state.settings.ollama_model_digest
+    state.update(checked_at=now, ok=digest is not None and (not expected or digest == expected))
+    return state["ok"]
 
 
 @router.get("/ready")
@@ -28,6 +45,7 @@ async def ready(request: Request) -> JSONResponse:
         "ruleset_loaded": cache.current() is not None,
         "ruleset_consistent": cache.consistent,
     }
+    checks["model"] = await _model_ok(request)
     try:
         async with request.app.state.pools.auth.connection(timeout=2) as conn:
             await conn.execute("SELECT 1")

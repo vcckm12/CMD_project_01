@@ -25,6 +25,15 @@ FIXED_MESSAGES: dict[str, str] = {
     "RATE_LIMITED": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
     "AUDIT_UNAVAILABLE": "일시적으로 요청을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.",
     "SERVICE_NOT_READY": "서비스가 준비되지 않았습니다.",
+    "RULESET_UNAVAILABLE": "보안 정책을 불러오지 못해 요청을 처리할 수 없습니다.",
+    "GUARDRAIL_TIMEOUT": "안전성 검사가 지연되고 있습니다. 잠시 후 다시 시도해 주세요.",
+    "GUARDRAIL_UNAVAILABLE": "안전성 검사를 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    "GUARDRAIL_BLOCKED": "보안 정책에 따라 요청을 처리할 수 없습니다.",
+    "INFERENCE_UNAVAILABLE": "답변을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+    "INFERENCE_TIMEOUT": "답변 생성 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+    "SESSION_BUSY": "이 대화에서 이전 요청을 처리하고 있습니다. 완료 후 다시 시도해 주세요.",
+    "UNSUPPORTED_MODEL": "지원하지 않는 모델입니다.",
+    "PROMPT_TOO_LONG": "질문이 너무 깁니다. 나누어서 보내 주세요.",
     "INTERNAL_ERROR": "일시적인 오류가 발생했습니다.",
 }
 
@@ -39,7 +48,12 @@ class ApiError(Exception):
 
 def error_response(request: Request, status: int, code: str, headers: dict[str, str] | None = None) -> JSONResponse:
     request_id = getattr(request.state, "request_id", None)
-    body = {"request_id": request_id, "error": {"code": code, "message": FIXED_MESSAGES[code]}}
+    if request.url.path.startswith("/v1/"):
+        # OpenAI-compatible error shape for AnythingLLM (DES-005 §4.2).
+        kind = "server_error" if status >= 500 else "invalid_request_error"
+        body = {"error": {"message": FIXED_MESSAGES[code], "type": kind, "param": None, "code": code}}
+    else:
+        body = {"request_id": request_id, "error": {"code": code, "message": FIXED_MESSAGES[code]}}
     return JSONResponse(body, status_code=status, headers=headers)
 
 

@@ -156,15 +156,67 @@ def settings(jwt_key_file, active_ruleset):
     )
 
 
+class FakeModel:
+    """Scripted Ollama: judge calls (format=json) get `judge` labels by target, chat calls pop `replies`.
+
+    A reply is a dict message ({"content": ...} or {"tool_calls": [...]}), an int HTTP status, or
+    an Exception class to raise. `chat_calls` records every non-judge request body.
+    """
+
+    def __init__(self):
+        self.replies: list = []
+        self.judge = {"input": "SAFE", "tool": "SAFE", "output": "SAFE"}
+        self.chat_calls: list[dict] = []
+        self.judge_calls: list[dict] = []
+        self.prompt_eval_count = 100
+
+    def handler(self, request):
+        import json as _json
+
+        import httpx
+
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "qwen3:8b", "digest": "d" * 64}]})
+        body = _json.loads(request.content)
+        if body.get("format") == "json":
+            self.judge_calls.append(body)
+            system = body["messages"][0]["content"]
+            target = "output" if "ASSISTANT ANSWER" in system else "tool" if "TOOL RESULT" in system else "input"
+            label = self.judge[target]
+            if isinstance(label, int):
+                return httpx.Response(label)
+            return httpx.Response(200, json={"message": {"content": _json.dumps({"label": label})}})
+        self.chat_calls.append(body)
+        reply = self.replies.pop(0) if self.replies else {"content": "안내해 드릴게요."}
+        if isinstance(reply, type) and issubclass(reply, Exception):
+            raise reply("scripted")
+        if isinstance(reply, int):
+            return httpx.Response(reply)
+        return httpx.Response(
+            200,
+            json={
+                "message": {"role": "assistant", **reply},
+                "prompt_eval_count": self.prompt_eval_count,
+                "eval_count": 20,
+            },
+        )
+
+
 @pytest.fixture
-def client(settings):
+def fake_model():
+    return FakeModel()
+
+
+@pytest.fixture
+def client(settings, fake_model):
+    import httpx
     from fastapi import Depends
     from fastapi.testclient import TestClient
 
     from app.main import create_app
     from app.security.auth import AuthContext, authenticate
 
-    app = create_app(settings)
+    app = create_app(settings, ollama_transport=httpx.MockTransport(fake_model.handler))
 
     # Test-only probe so client-token authentication can be exercised before chat routes exist.
     @app.get("/api/v1/_test/whoami")

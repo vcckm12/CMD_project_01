@@ -177,6 +177,7 @@ secret fingerprint는 비밀 평문을 모델에 알려 주기 위한 값이 아
 | name | strict arguments | 결과 최소 필드 | 실행·권한 |
 |---|---|---|---|
 | search_products | q:string≤100, limit:int 1~20 | 상품 id·명칭·가격·재고, 최대 20개 | read / customer·shop:read |
+| list_orders | {} | 본인 최근 주문 10건의 id·상태·합계·주문일 | read / 본인만 (D-27 추가) |
 | get_order | order_id:UUID | 본인 주문 상태·합계·상품 내역 | read / 본인만, 타인·없음 404 |
 | get_cart | {} | 본인 cart_id·version·items·금액·적용 쿠폰 | read / 본인만 |
 | list_coupons | {} | 본인 보유 쿠폰 id·조건·eligible | read / 본인만 |

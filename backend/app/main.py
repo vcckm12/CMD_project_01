@@ -10,7 +10,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.api import auth, health
+from app.api import auth, chat, compat, health
+from app.chat.service import UserBudget
 from app.config import Settings, get_settings
 from app.context import RequestContextMiddleware
 from app.db.pools import Pools
@@ -24,6 +25,8 @@ from app.guardrails.rule_cache import RuleCache
 from app.security.auth import LoginRateLimiter
 from app.security.tokens import JwtSigner
 from app.services.ollama import OllamaClient
+from app.services.prompts import PROTECTED_TEXTS
+from app.services.slm import SLMService
 
 
 def load_fingerprints(path: Path | None) -> frozenset[str]:
@@ -33,7 +36,8 @@ def load_fingerprints(path: Path | None) -> frozenset[str]:
     return frozenset(line for line in lines if len(line) == 64 and all(c in "0123456789abcdef" for c in line))
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, ollama_transport=None) -> FastAPI:
+    """`ollama_transport` lets integration tests script the model server (httpx MockTransport)."""
     settings = settings or get_settings()
 
     @asynccontextmanager
@@ -41,6 +45,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.pools = Pools(settings.auth_database_url, settings.chat_database_url)
         await app.state.pools.open()
         app.state.alert_monitor.pool = app.state.pools.chat
+        if app.state.pools.chat is not None:
+            app.state.slm = SLMService(
+                app.state.ollama,
+                app.state.guardrails,
+                app.state.pools.chat,
+                num_predict=settings.ollama_num_predict,
+                call_timeout_s=settings.ollama_call_timeout_seconds,
+            )
         reloader = None
         if app.state.pools.chat is not None:
             # First load happens before serving; afterwards a poller swaps snapshots atomically.
@@ -74,6 +86,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.input_engine = InputGuardrailEngine(budget_ms=settings.guardrail_budget_ms)
     app.state.output_engine = OutputGuardrailEngine(
         secret_fingerprints=load_fingerprints(settings.secret_fingerprints_file),
+        protected_texts=PROTECTED_TEXTS,
         budget_ms=settings.guardrail_budget_ms,
     )
     app.state.ollama = OllamaClient(
@@ -81,6 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.ollama_model,
         num_ctx=settings.ollama_num_ctx,
         queue_wait_s=settings.ollama_queue_wait_seconds,
+        transport=ollama_transport,
     )
     app.state.alert_monitor = AlertMonitor(None, settings.input_fingerprint_key.encode("utf-8"))
     app.state.guardrails = GuardrailPipeline(
@@ -89,10 +103,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         SafetyJudge(app.state.ollama, timeout_s=settings.judge_timeout_seconds) if settings.judge_enabled else None,
         app.state.alert_monitor,
     )
+    app.state.user_budget = UserBudget(settings.user_requests_per_minute)
+    app.state.model_check = {"checked_at": 0.0, "ok": False}
     install_error_handlers(app)
     app.add_middleware(RequestContextMiddleware, max_body_bytes=settings.max_body_bytes)
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(chat.router)
+    app.include_router(compat.router)
     return app
 
 

@@ -13,7 +13,7 @@
 | 인증(JWT·refresh·client token) | 완료 |
 | 입력·출력 가드레일 엔진·룰셋 게시 | 완료 (탐지율은 [DES-007 §8](docs/07_verification_operations_plan.md#8-문서-검증-기록) 참고) |
 | AI 판별(입력·Tool·출력)·관제 경보 | 완료 (held-out v2: 입력 100%, 출력 83%, 지연 p50 1.7초) |
-| 챗 파이프라인·Ollama 연동 | 예정 |
+| 챗 파이프라인(native·SSE·AnythingLLM 호환·읽기 Tool) | 완료 (실모델 응답 20~55초, CPU) |
 | Tool·변경 승인 | 예정 |
 | 감사 worker·스케줄러 | 예정 |
 | 고객 웹 / Streamlit 관제 / lab ON·OFF 비교 | 예정 |
@@ -39,6 +39,13 @@ docker compose exec api python -m app.cli.create_user --email admin@example.inte
 ```
 
 JWT 서명 키 `secrets/jwt_private.pem`은 커밋하지 않습니다.
+
+개발용 합성 데이터와 룰셋:
+
+```bash
+docker compose exec api python -m app.cli.rules bootstrap --actor-email admin@example.internal  # 최초 1회
+docker compose run --rm migrate python -m app.cli.seed --customer-email <가입한 고객 이메일>      # 합성 상품·주문·쿠폰
+```
 
 DB 포트는 호스트에 공개하지 않습니다. 데이터를 지우고 다시 시작하려면 `docker compose down -v`.
 
