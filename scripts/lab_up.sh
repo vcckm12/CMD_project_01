@@ -22,6 +22,7 @@ C="docker compose --env-file .env.lab"
 $C build -q
 $C up -d --wait postgres
 $C run --rm migrate
+$C run --rm migrate python -m app.cli.seed  # synthetic catalog and coupons (idempotent)
 # The API reports not-ready until a ruleset is published, so publish before waiting on health.
 $C up -d api
 printf '%s\n%s\n' "$LAB_ADMIN_PASSWORD" "$LAB_ADMIN_PASSWORD" | \
