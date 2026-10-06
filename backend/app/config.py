@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # LLM safety judge (D-25) and alert fingerprints (D-26). The key only has to stay stable and secret;
     # it makes stored input fingerprints irreversible by dictionary guessing.
     judge_enabled: bool = True
-    judge_timeout_seconds: float = 20.0
+    judge_timeout_seconds: float = 45.0  # CPU inference: long Tool results took >20 s (2026-10-06)
     input_fingerprint_key: str = ""
 
     @model_validator(mode="after")

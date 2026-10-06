@@ -98,7 +98,7 @@
 
 | 설정명 | 초기 기본값 | 책임 문서 |
 |---|---|---|
-| JUDGE_ENABLED / JUDGE_TIMEOUT | production은 true 고정 / 호출당 20초, 1회 재시도 | DES-006 |
+| JUDGE_ENABLED / JUDGE_TIMEOUT | production은 true 고정 / 호출당 45초(2026-10-06 20초에서 상향, CPU 추론에서 긴 Tool 결과 판별이 20초 초과), 1회 재시도 | DES-006 |
 | INPUT_FINGERPRINT_KEY | 경보용 입력 지문 HMAC 키, production 필수(32자 이상) | DES-006 |
 | GUARDRAIL_ENFORCED | production은 true 고정(그 외 값이면 readiness 실패), lab만 요청별 비교 허용 | DES-006 |
 | MAX_USER_CHARS / MAX_REQUEST_CHARS | 8000 / 32000 | DES-005·006 |

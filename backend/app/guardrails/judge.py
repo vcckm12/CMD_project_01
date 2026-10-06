@@ -97,7 +97,7 @@ def _chunks(text: str) -> list[str]:
 
 
 class SafetyJudge:
-    def __init__(self, client: OllamaClient, *, timeout_s: float = 20.0, retries: int = 1) -> None:
+    def __init__(self, client: OllamaClient, *, timeout_s: float = 45.0, retries: int = 1) -> None:
         self.client = client
         self.timeout_s = timeout_s
         self.retries = retries
