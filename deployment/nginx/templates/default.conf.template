@@ -1,0 +1,98 @@
+# Edge for the shop and ops hosts (DES-001 §2, D-17, D-23). Rendered by the nginx image's envsubst.
+# - X-Edge-Channel and X-Real-IP are always overwritten here, never taken from the client.
+# - The shop host never routes admin, audit, rule or lab APIs; the ops host only reaches Streamlit.
+# - Logs carry the path without query string and no Authorization/cookie headers.
+
+log_format edge '$remote_addr [$time_iso8601] "$request_method $uri" $status $body_bytes_sent '
+                '$request_time "$host" rid=$upstream_http_x_request_id';
+
+limit_req_zone $binary_remote_addr zone=per_ip:10m rate=10r/s;
+map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;
+ssl_session_cache shared:SSL:10m;
+server_tokens off;
+client_max_body_size 256k;
+resolver 127.0.0.11 valid=10s ipv6=off;
+
+# Unknown host names get nothing.
+server {
+    listen 443 ssl default_server;
+    ssl_certificate     /etc/nginx/tls/server.crt;
+    ssl_certificate_key /etc/nginx/tls/server.key;
+    access_log /var/log/nginx/access.log edge;  # server-level: replaces the image's default combined log
+    return 444;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${SHOP_HOST};
+    ssl_certificate     /etc/nginx/tls/server.crt;
+    ssl_certificate_key /etc/nginx/tls/server.key;
+    access_log /var/log/nginx/access.log edge;  # server-level: replaces the image's default combined log
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+    limit_req zone=per_ip burst=20 nodelay;
+    limit_req_status 429;
+
+    # Admin, audit, rule, lab and readiness APIs exist only behind the ops channel.
+    location ~ ^/api/v1/(audit|rulesets|alerts|lab|health/ready)(/|$) { return 404; }
+
+    location ~ ^/(api|v1)/ {
+        set $api http://api:8000;
+        proxy_pass $api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Edge-Channel shop;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Request-Id "";
+        proxy_set_header Connection "";
+        # SSE starts only after full inspection (up to the 240 s chat deadline).
+        proxy_buffering off;
+        proxy_read_timeout 270s;
+        # No add_header here: it would drop the server-level security headers. The API sets no-store itself.
+    }
+
+    location / {
+        root /usr/share/nginx/shop;
+        try_files $uri /index.html;
+        expires epoch;  # always revalidate the SPA files
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name ${OPS_HOST};
+    ssl_certificate     /etc/nginx/tls/server.crt;
+    ssl_certificate_key /etc/nginx/tls/server.key;
+    access_log /var/log/nginx/access.log edge;  # server-level: replaces the image's default combined log
+
+    # Management network only (D-23); role checks still happen in the API.
+    allow ${OPS_ALLOW_CIDR};
+    allow 127.0.0.1;
+    deny all;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy no-referrer always;
+    add_header X-Frame-Options DENY always;
+
+    location / {
+        set $ops http://streamlit:8501;
+        proxy_pass $ops;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 300s;
+    }
+}

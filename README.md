@@ -16,7 +16,8 @@
 | 챗 파이프라인(native·SSE·AnythingLLM 호환·읽기 Tool) | 완료 (실모델 응답 20~55초, CPU) |
 | Tool·변경 승인(ACTION-01~04)·쇼핑 조회(SHOP-01~06) | 완료 |
 | 감사 worker·스케줄러 | 완료 |
-| 고객 웹 / Streamlit 관제 / lab ON·OFF 비교 | 예정 |
+| Nginx·TLS·고객 웹 | 완료 (브라우저 E2E 통과) |
+| Streamlit 관제 / lab ON·OFF 비교 | 예정 |
 
 ## 로컬 실행 (현재 단계: DB)
 
@@ -39,6 +40,15 @@ docker compose exec api python -m app.cli.create_user --email admin@example.inte
 ```
 
 JWT 서명 키 `secrets/jwt_private.pem`은 커밋하지 않습니다.
+
+HTTPS 진입점 (내부망 1단계, D-23):
+
+```bash
+python scripts/gen_certs.py                 # secrets/tls/ 사설 CA·서버 인증서 (cryptography 필요)
+docker compose up -d --wait nginx
+```
+
+접속할 PC에서는 `secrets/tls/ca.crt`를 신뢰할 수 있는 루트 인증서로 설치합니다. 그리고 hosts 파일에 `10.10.70.149 shop.example.internal ops.example.internal`을 추가합니다. 이후 `https://shop.example.internal`로 접속합니다. 브라우저 E2E: `scripts/e2e_web.py`(파일 머리말 참고).
 
 개발용 합성 데이터와 룰셋:
 

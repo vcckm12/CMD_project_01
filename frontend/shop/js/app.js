@@ -1,113 +1,466 @@
-/**
- * Guardrail Fashion Mock Store - Frontend Application Script
- */
+// Customer web (DES-004 SCR-C01~C06). History-API router, server values only, no HTML injection.
+import * as api from "./api.js";
+import { h, kst, krw, mount, renderAnswer, uuidv4 } from "./dom.js";
 
-function toggleChat() {
-    const chatWidget = document.getElementById("chatWidget");
-    chatWidget.classList.toggle("hidden");
+const app = document.getElementById("app");
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const RETURN_TO = new RegExp(`^/(?:actions/${UUID}|cart|orders|settings/clients)?$`);
+const STATUS_TEXT = { confirmed: "주문 확인", shipped: "배송 중", delivered: "배송 완료", cancelled: "취소 이력" };
+const REASONS = {
+  PRODUCT_UNAVAILABLE: "판매하지 않는 상품입니다.",
+  OUT_OF_STOCK: "재고가 부족합니다.",
+  NOT_IN_CART: "장바구니에 없는 상품입니다.",
+  COUPON_NOT_AVAILABLE: "사용할 수 없는 쿠폰입니다.",
+  MIN_SUBTOTAL_NOT_MET: "쿠폰 최소 주문 금액에 미달합니다.",
+  NO_COUPON_APPLIED: "적용된 쿠폰이 없습니다.",
+};
+
+function navigate(path, replace = false) {
+  history[replace ? "replaceState" : "pushState"]({}, "", path);
+  route();
 }
 
-function askAboutProduct(productName) {
-    const chatWidget = document.getElementById("chatWidget");
-    chatWidget.classList.remove("hidden");
-    sendQuickMessage(`${productName} 가격과 배송 정보 알려줘`);
+function link(path, label, extra = {}) {
+  return h("a", {
+    href: path,
+    ...extra,
+    onclick: (e) => {
+      e.preventDefault();
+      navigate(path);
+    },
+  }, label);
 }
 
-function sendQuickMessage(text) {
-    const input = document.getElementById("chatInput");
-    input.value = text;
-    handleSendMessage();
+function notice(err) {
+  if (!(err instanceof api.ApiError)) return "네트워크 오류가 발생했습니다. 다시 시도해 주세요.";
+  const reason = err.reason && REASONS[err.reason] ? ` (${REASONS[err.reason]})` : "";
+  const id = err.requestId ? ` · 문의번호 ${err.requestId.slice(0, 8)}` : "";
+  return `${err.message}${reason}${id}`;
 }
 
-async function handleSendMessage() {
-    const input = document.getElementById("chatInput");
-    const chatMessages = document.getElementById("chatMessages");
-    const text = input.value.trim();
+function errorBox(err) {
+  return h("p", { class: "error", role: "alert", text: notice(err) });
+}
 
-    if (!text) return;
+function layout(...content) {
+  const user = api.session.user;
+  return [
+    h("header", { class: "topbar" },
+      h("div", { class: "brand" }, link("/", "GUARDRAIL FASHION")),
+      h("span", { class: "badge", title: "운영 환경에서는 보안 보호를 끌 수 없습니다" }, "🛡️ 보안 보호 활성"),
+      user
+        ? h("nav", { "aria-label": "주 메뉴" },
+            link("/", "상품·AI"), link("/cart", "장바구니"), link("/orders", "주문"), link("/settings/clients", "연결"),
+            h("button", { class: "link", onclick: onLogout }, "모든 기기 로그아웃"))
+        : null),
+    h("main", { id: "main", tabindex: "-1" }, ...content),
+    h("footer", {}, "AI 답변은 부정확할 수 있습니다. 상품·주문 정보와 변경 내용을 직접 확인해 주세요."),
+  ];
+}
 
-    // Append user message bubble
-    appendMessage(text, "user");
-    input.value = "";
-    input.disabled = true;
+async function onLogout() {
+  try {
+    await api.logout();
+  } catch {
+    /* tokens are dropped locally either way */
+  }
+  sessionStorage.clear();
+  navigate("/login", true);
+}
 
-    // Show typing indicator
-    const loadingId = appendLoadingIndicator();
+// ------------------------------------------------------------------ SCR-C01 login / register
 
-    try {
-        // Support Nginx reverse proxy (:80), direct backend (:8000), or static server (:8080/file)
-        const apiUrl = (window.location.port === "80" || window.location.port === "" || window.location.port === "8000")
-            ? "/api/v1/chat/completions" 
-            : "http://localhost:8000/api/v1/chat/completions";
-
-        const response = await fetch(apiUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                message: text,
-                customer_id: "cust_101",
-            }),
-        });
-
-        removeLoadingIndicator(loadingId);
-
-        if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            const errMsg = errData.message || "보안 검사 중 오류가 발생했습니다.";
-            appendMessage(errMsg, "bot", true);
-            return;
+function loginView(params) {
+  let mode = "login";
+  const email = h("input", { id: "email", type: "email", autocomplete: "username", maxlength: 254, required: true });
+  const password = h("input", { id: "password", type: "password", autocomplete: "current-password", maxlength: 128, required: true });
+  const message = h("p", { class: "muted", "aria-live": "polite" });
+  const submit = h("button", { type: "submit", class: "primary" }, "로그인");
+  const tabs = h("div", { class: "tabs", role: "tablist" });
+  const setMode = (next) => {
+    mode = next;
+    submit.textContent = next === "login" ? "로그인" : "계정 만들기";
+    password.setAttribute("autocomplete", next === "login" ? "current-password" : "new-password");
+    password.setAttribute("minlength", next === "login" ? 1 : 12);
+    for (const b of tabs.children) b.setAttribute("aria-selected", String(b.dataset.mode === next));
+  };
+  tabs.append(
+    h("button", { type: "button", role: "tab", "data-mode": "login", onclick: () => setMode("login") }, "로그인"),
+    h("button", { type: "button", role: "tab", "data-mode": "register", onclick: () => setMode("register") }, "회원가입"),
+  );
+  const form = h("form", {
+    class: "card narrow",
+    onsubmit: async (e) => {
+      e.preventDefault();
+      submit.disabled = true;
+      message.textContent = "";
+      try {
+        const addr = email.value.trim();
+        if (mode === "register") {
+          await api.register(addr, password.value);
+          setMode("login");
+          message.textContent = "계정을 만들었습니다. 로그인해 주세요.";
+          return;
         }
+        await api.login(addr, password.value);
+        password.value = "";
+        const target = params.get("return_to");
+        navigate(target && RETURN_TO.test(target) ? target : "/", true);
+      } catch (err) {
+        message.textContent = notice(err);
+      } finally {
+        submit.disabled = false;
+      }
+    },
+  },
+    h("h1", {}, "AI 쇼핑 도우미"), tabs,
+    h("label", { for: "email" }, "이메일"), email,
+    h("label", { for: "password" }, "비밀번호 (회원가입 시 12자 이상)"), password,
+    submit, message);
+  setMode("login");
+  return layout(form);
+}
 
-        const data = await response.json();
-        const isBlocked = !data.success || !data.security_evaluation?.input_passed;
-        appendMessage(data.response, "bot", isBlocked, data.security_evaluation);
+// ------------------------------------------------------------------ SCR-C02 products + chat
 
+async function homeView() {
+  const results = h("div", { class: "products", "aria-live": "polite" });
+  const q = h("input", { id: "q", type: "search", maxlength: 100, placeholder: "상품명 또는 SKU" });
+  const search = async () => {
+    try {
+      const data = await api.get(`/api/v1/products?limit=20&q=${encodeURIComponent(q.value.trim())}`);
+      mount(results, data.data.items.length ? data.data.items.map(productCard) : [h("p", { class: "muted" }, "검색 결과가 없습니다.")]);
     } catch (err) {
-        removeLoadingIndicator(loadingId);
-        appendMessage("서버 연결에 실패했습니다. 백엔드 서비스 상태를 확인해 주세요.", "bot", true);
-    } finally {
-        input.disabled = false;
+      mount(results, errorBox(err));
+    }
+  };
+  const searchForm = h("form", { class: "search", onsubmit: (e) => { e.preventDefault(); search(); } },
+    h("label", { for: "q", class: "sr-only" }, "상품 검색"), q, h("button", { type: "submit" }, "검색"));
+  search();
+  return layout(h("div", { class: "split" },
+    h("section", { class: "card", "aria-labelledby": "products-title" }, h("h2", { id: "products-title" }, "상품"), searchForm, results),
+    await chatPanel()));
+}
+
+function productCard(p) {
+  const qty = h("input", { type: "number", min: 1, max: 99, value: 1, "aria-label": `${p.name} 수량` });
+  return h("article", { class: "product" },
+    h("h3", { text: p.name }),
+    h("p", {}, krw(p.price_krw), " · ", p.stock_count > 0 ? `재고 ${p.stock_count}개` : "품절"),
+    h("div", { class: "row" }, qty,
+      h("button", {
+        disabled: p.stock_count <= 0,
+        onclick: () => proposeChange("set_cart_item", { product_id: p.id, quantity: Number(qty.value) }),
+      }, "장바구니 담기 제안")));
+}
+
+async function chatPanel() {
+  const log = h("div", { class: "chat-log", role: "log", "aria-live": "polite" });
+  const input = h("textarea", { id: "prompt", rows: 3, maxlength: 8000, placeholder: "무엇을 도와드릴까요?" });
+  const counter = h("span", { class: "muted" }, "0/8000");
+  const send = h("button", { type: "submit", class: "primary" }, "전송");
+  input.addEventListener("input", () => {
+    counter.textContent = `${[...input.value].length}/8000`;
+  });
+  let sessionId = sessionStorage.getItem("chat_session");
+  const ensureSession = async () => {
+    if (!sessionId) {
+      const r = await api.post("/api/v1/sessions", {});
+      sessionId = r.data.data.session_id;
+      sessionStorage.setItem("chat_session", sessionId);
+    }
+    return sessionId;
+  };
+  const bubble = (who, node, extra = "") => {
+    log.append(h("div", { class: `bubble ${who} ${extra}` }, node));
+    log.scrollTop = log.scrollHeight;
+  };
+  const form = h("form", {
+    class: "chat-form",
+    onsubmit: async (e) => {
+      e.preventDefault();
+      const prompt = input.value;
+      if (!prompt.trim()) return;
+      send.disabled = true; // one request per session at a time (SESSION_BUSY otherwise)
+      bubble("me", h("p", { text: prompt }));
+      input.value = "";
+      counter.textContent = "0/8000";
+      const waiting = h("p", { class: "muted" }, "답변을 만들고 안전성을 확인하는 중입니다…");
+      bubble("bot", waiting, "pending");
+      try {
+        const id = await ensureSession();
+        const r = await api.post("/api/v1/chat/completions", { session_id: id, prompt });
+        waiting.parentElement.remove();
+        renderReply(bubble, r.data);
+      } catch (err) {
+        waiting.parentElement.remove();
+        if (err.status === 404) sessionStorage.removeItem("chat_session");
+        bubble("bot", errorBox(err), "error");
+      } finally {
+        send.disabled = false;
         input.focus();
+      }
+    },
+  }, h("label", { for: "prompt", class: "sr-only" }, "질문 입력"), input, h("div", { class: "row between" }, counter, send));
+  const reset = h("button", {
+    class: "link",
+    onclick: () => {
+      sessionStorage.removeItem("chat_session");
+      sessionId = null;
+      log.replaceChildren();
+    },
+  }, "새 대화");
+  return h("section", { class: "card chat", "aria-labelledby": "chat-title" },
+    h("div", { class: "row between" }, h("h2", { id: "chat-title" }, "AI 도우미"), reset),
+    h("p", { class: "muted small" }, "서버에는 개인정보를 가린 대화만 보관됩니다."), log, form);
+}
+
+function renderReply(bubble, body) {
+  if (body.status === "blocked") {
+    bubble("bot", h("p", { text: body.content }), "blocked");
+    return;
+  }
+  const node = h("div", {}, renderAnswer(body.content));
+  if (body.status === "masked") node.append(h("p", { class: "tag" }, "🔒 개인정보 보호를 위해 일부 내용을 가렸습니다."));
+  if (body.status === "confirmation_required" && body.action) {
+    node.append(h("div", { class: "confirm-card" },
+      h("p", {}, `확인 기한: ${kst(body.action.expires_at)}`),
+      link(`/actions/${body.action.action_id}`, "변경 내용 확인하기", { class: "button" })));
+  }
+  bubble("bot", node, body.status);
+}
+
+async function proposeChange(tool_name, args) {
+  try {
+    const cart = await api.get("/api/v1/cart");
+    const r = await api.post("/api/v1/actions", { tool_name, arguments: args, base_version: cart.data.version });
+    navigate(`/actions/${r.data.data.action_id}`);
+  } catch (err) {
+    alertDialog(notice(err));
+  }
+}
+
+function alertDialog(text) {
+  const dialog = h("dialog", { class: "card", "aria-modal": "true" },
+    h("p", { text }), h("button", { class: "primary", onclick: () => dialog.close() }, "확인"));
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+// ------------------------------------------------------------------------ SCR-C03 cart
+
+async function cartView() {
+  let cart;
+  let coupons;
+  try {
+    [cart, coupons] = await Promise.all([api.get("/api/v1/cart"), api.get("/api/v1/coupons")]);
+  } catch (err) {
+    return layout(errorBox(err));
+  }
+  const c = cart.data;
+  const rows = c.items.map((item) => {
+    const qty = h("input", { type: "number", min: 1, max: 99, value: item.quantity, "aria-label": `${item.name} 수량` });
+    return h("tr", {},
+      h("td", { text: item.name }), h("td", {}, krw(item.price_krw)),
+      h("td", {}, qty, item.available ? null : h("span", { class: "tag warn" }, "구매 불가")),
+      h("td", {},
+        h("button", { onclick: () => proposeChange("set_cart_item", { product_id: item.product_id, quantity: Number(qty.value) }) }, "변경"),
+        h("button", { class: "danger", onclick: () => proposeChange("remove_cart_item", { product_id: item.product_id }) }, "삭제")));
+  });
+  const usable = coupons.data.items.filter((x) => x.state === "available");
+  const select = h("select", { id: "coupon", "aria-label": "보유 쿠폰" },
+    ...usable.map((x) => h("option", { value: x.id, disabled: !x.eligible },
+      `${x.code} · ${krw(x.discount_krw)} 할인 · ${krw(x.min_subtotal_krw)} 이상 · ~${kst(x.expires_at)}${x.eligible ? "" : " (조건 미충족)"}`)));
+  return layout(h("section", { class: "card" },
+    h("h1", {}, "장바구니"),
+    c.items.length
+      ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "상품"), h("th", {}, "단가"), h("th", {}, "수량"), h("th", {}, ""))), h("tbody", {}, rows))
+      : h("p", { class: "muted" }, "장바구니가 비어 있습니다."),
+    h("h2", {}, "쿠폰"),
+    c.coupon ? h("p", {}, `적용 쿠폰: ${c.coupon.code}`, c.coupon.reason ? ` (${REASONS[c.coupon.reason] || "현재 조건 미충족"})` : "",
+      " ", h("button", { onclick: () => proposeChange("remove_coupon", {}) }, "해제 제안")) : null,
+    usable.length
+      ? h("div", { class: "row" }, select, h("button", { onclick: () => select.value && proposeChange("apply_coupon", { user_coupon_id: select.value }) }, "적용 제안"))
+      : h("p", { class: "muted" }, "사용 가능한 쿠폰이 없습니다."),
+    h("dl", { class: "totals" },
+      h("dt", {}, "상품 합계"), h("dd", {}, krw(c.subtotal_krw)),
+      h("dt", {}, "할인"), h("dd", {}, krw(c.discount_krw)),
+      h("dt", {}, "예상 합계"), h("dd", { class: "strong" }, krw(c.total_krw))),
+    h("p", { class: "muted small" }, "모든 변경은 확인 화면에서 승인한 뒤 적용됩니다. 장바구니 수량은 재고 예약이 아닙니다.")));
+}
+
+// ---------------------------------------------------------------- SCR-C04 change confirmation
+
+async function actionView(actionId) {
+  const area = h("section", { class: "card narrow" });
+  const load = async () => {
+    try {
+      const a = (await api.get(`/api/v1/actions/${actionId}`)).data;
+      mount(area, ...actionBody(a, load));
+    } catch (err) {
+      mount(area, h("h1", {}, "변경 내용 확인"), err.status === 404 ? h("p", {}, "요청을 찾을 수 없습니다.") : errorBox(err));
     }
+  };
+  await load();
+  return layout(area);
 }
 
-function appendMessage(text, sender, isBlocked = false, secEval = null) {
-    const chatMessages = document.getElementById("chatMessages");
-    const bubble = document.createElement("div");
-    bubble.className = `msg-bubble ${sender} ${isBlocked ? "blocked" : ""}`;
+function previewLines(p) {
+  const lines = [];
+  if (p.product) lines.push(["상품", `${p.product.name} (${krw(p.product.price_krw)})`]);
+  if (p.quantity_before !== null && p.quantity_before !== undefined) lines.push(["수량", `${p.quantity_before}개 → ${p.quantity_after}개`]);
+  lines.push(["쿠폰", p.coupon ? `${p.coupon.code} (${krw(p.coupon.discount_krw)} 할인)` : "없음"]);
+  lines.push(["예상 합계", `${krw(p.total_before)} → ${krw(p.total_after)}`]);
+  return lines;
+}
 
-    let secBadge = "";
-    if (secEval && sender === "bot") {
-        const piiBadge = secEval.pii_redacted ? " | <span style='color:#f59e0b;'>PII Redacted</span>" : "";
-        secBadge = `<div style="font-size:0.75rem; color:#94a3b8; margin-top:6px; border-top:1px dashed #cbd5e1; padding-top:4px;">⏱️ Latency: ${secEval.latency_ms.toFixed(2)}ms${piiBadge}</div>`;
+function actionBody(a, reload) {
+  const status = h("p", { "aria-live": "polite" });
+  const p = a.preview || {};
+  const parts = [
+    h("h1", {}, "변경 내용 확인"),
+    h("dl", { class: "totals" }, ...previewLines(p).flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])),
+    (p.notes || []).length ? h("p", { class: "tag warn" }, "이 변경으로 적용 중인 쿠폰 조건이 맞지 않아 쿠폰이 해제됩니다.") : null,
+  ];
+  if (a.state === "pending") {
+    const keyName = `idem_${a.action_id}`;
+    const confirmBtn = h("button", { class: "primary" }, "이 내용으로 변경");
+    const cancelBtn = h("button", {}, "취소");
+    confirmBtn.addEventListener("click", async () => {
+      confirmBtn.disabled = cancelBtn.disabled = true;
+      // The same key is reused for retries of this action, so a lost response never applies twice.
+      let key = sessionStorage.getItem(keyName);
+      if (!key) sessionStorage.setItem(keyName, (key = uuidv4()));
+      try {
+        await api.post(`/api/v1/actions/${a.action_id}/confirm`, {}, { "Idempotency-Key": key });
+      } catch (err) {
+        status.textContent = notice(err);
+      }
+      await reload();
+    });
+    cancelBtn.addEventListener("click", async () => {
+      confirmBtn.disabled = cancelBtn.disabled = true;
+      try {
+        await api.post(`/api/v1/actions/${a.action_id}/cancel`, {});
+      } catch (err) {
+        status.textContent = notice(err);
+      }
+      await reload();
+    });
+    parts.push(h("p", {}, `확인 기한: ${kst(a.expires_at)} (서버 시각 기준)`), h("div", { class: "row between" }, cancelBtn, confirmBtn), status);
+  } else {
+    const text = {
+      executed: "변경이 적용되었습니다.",
+      cancelled: "취소된 요청입니다.",
+      expired: "확인 시간이 지났습니다. 다시 요청해 주세요.",
+      failed: "장바구니나 가격이 바뀌어 적용하지 않았습니다. 다시 요청해 주세요.",
+    }[a.state];
+    parts.push(h("p", { class: a.state === "executed" ? "ok" : "warn" }, text));
+    if (a.state === "executed" && a.result) parts.push(h("p", {}, `현재 예상 합계: ${krw(a.result.total_krw)}`));
+    parts.push(link("/cart", "장바구니로 이동", { class: "button" }));
+  }
+  return parts;
+}
+
+// ---------------------------------------------------------------------- SCR-C05 orders
+
+async function ordersView(orderId) {
+  try {
+    if (orderId) {
+      const o = (await api.get(`/api/v1/orders/${orderId}`)).data;
+      return layout(h("section", { class: "card" },
+        h("h1", {}, `주문 ${o.external_ref}`),
+        h("p", {}, `${kst(o.placed_at)} · ${STATUS_TEXT[o.status] || o.status} · ${krw(o.total_krw)}`),
+        h("table", {}, h("tbody", {}, o.items.map((i) => h("tr", {}, h("td", { text: i.name }), h("td", {}, `${i.quantity}개`), h("td", {}, krw(i.unit_price_krw)))))),
+        link("/orders", "목록으로")));
     }
-
-    bubble.innerHTML = `<div class="msg-content">${escapeHtml(text)}</div>${secBadge}`;
-    chatMessages.appendChild(bubble);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    const list = (await api.get("/api/v1/orders?limit=20")).data.items;
+    return layout(h("section", { class: "card" }, h("h1", {}, "내 주문"),
+      list.length
+        ? h("table", {}, h("tbody", {}, list.map((o) => h("tr", {},
+            h("td", {}, link(`/orders/${o.id}`, o.external_ref)), h("td", {}, kst(o.placed_at)),
+            h("td", {}, STATUS_TEXT[o.status] || o.status), h("td", {}, krw(o.total_krw))))))
+        : h("p", { class: "muted" }, "주문 내역이 없습니다."),
+      h("p", { class: "muted small" }, "주문 조회만 가능합니다. 취소·결제는 고객센터를 이용해 주세요.")));
+  } catch (err) {
+    return layout(err.status === 404 ? h("p", {}, "주문을 찾을 수 없습니다.") : errorBox(err));
+  }
 }
 
-function appendLoadingIndicator() {
-    const chatMessages = document.getElementById("chatMessages");
-    const id = "loading-" + Date.now();
-    const loadingBubble = document.createElement("div");
-    loadingBubble.id = id;
-    loadingBubble.className = "msg-bubble bot";
-    loadingBubble.innerHTML = `<div class="msg-content"><i class="fa-solid fa-spinner fa-spin"></i> 가드레일 보안 검사 및 답변 생성 중...</div>`;
-    chatMessages.appendChild(loadingBubble);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-    return id;
+// ------------------------------------------------------------- SCR-C06 AnythingLLM tokens
+
+async function clientsView() {
+  const listArea = h("div");
+  const issued = h("div", { "aria-live": "polite" });
+  const name = h("input", { id: "token-name", maxlength: 80, value: "내 데스크톱" });
+  const load = async () => {
+    try {
+      const items = (await api.get("/api/v1/auth/client-tokens")).data.items;
+      mount(listArea, items.length
+        ? h("table", {}, h("tbody", {}, items.map((t) => h("tr", {},
+            h("td", { text: t.name }), h("td", {}, t.scopes.join(", ")), h("td", {}, `~${kst(t.expires_at)}`),
+            h("td", {}, { active: "사용 중", expired: "만료", revoked: "폐기" }[t.status]),
+            h("td", {}, t.status === "active" ? h("button", { class: "danger", onclick: async () => { await api.del(`/api/v1/auth/client-tokens/${t.id}`); load(); } }, "폐기") : null)))))
+        : h("p", { class: "muted" }, "발급한 연결 키가 없습니다."));
+    } catch (err) {
+      mount(listArea, errorBox(err));
+    }
+  };
+  const issue = h("form", {
+    class: "row",
+    onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        const r = (await api.post("/api/v1/auth/client-tokens", { name: name.value.trim() })).data.data;
+        const value = h("code", { class: "secret" }, r.token);
+        mount(issued, h("div", { class: "confirm-card" },
+          h("p", { class: "strong" }, "이 키는 지금 한 번만 표시됩니다. AnythingLLM의 API Key 칸에 붙여 넣으세요."), value,
+          h("div", { class: "row" },
+            h("button", { onclick: () => navigator.clipboard.writeText(r.token) }, "복사"),
+            h("button", { onclick: () => issued.replaceChildren() }, "확인·닫기"))));
+        load();
+      } catch (err) {
+        mount(issued, errorBox(err));
+      }
+    },
+  }, h("label", { for: "token-name" }, "이름"), name, h("button", { type: "submit", class: "primary" }, "연결 키 발급"));
+  load();
+  return layout(h("section", { class: "card" },
+    h("h1", {}, "AnythingLLM 연결"),
+    h("ol", {},
+      h("li", {}, "AnythingLLM 설정 → LLM 제공자에서 Generic OpenAI를 선택합니다."),
+      h("li", {}, `Base URL: ${location.origin}/v1`),
+      h("li", {}, "Model: qwen3:8b · API Key: 아래에서 발급한 연결 키")),
+    h("p", { class: "muted small" }, "연결 키는 30일간 유효하며 조회·질문·변경 제안만 할 수 있습니다. 변경 확인은 이 웹에서 합니다. 로그아웃하면 모든 연결 키도 무효가 됩니다."),
+    issue, issued, h("h2", {}, "발급한 키"), listArea));
 }
 
-function removeLoadingIndicator(id) {
-    const el = document.getElementById(id);
-    if (el) el.remove();
+// ------------------------------------------------------------------------------ router
+
+async function route() {
+  const path = location.pathname;
+  const params = new URLSearchParams(location.search);
+  if (!api.session.signedIn) await api.refresh();
+  if (path === "/login") return mount(app, loginView(params));
+  if (!api.session.signedIn) return navigate(`/login?return_to=${encodeURIComponent(RETURN_TO.test(path) ? path : "/")}`, true);
+  if (api.session.user?.role !== "customer") {
+    await api.logout().catch(() => {});
+    return navigate("/login", true);
+  }
+  const action = path.match(new RegExp(`^/actions/(${UUID})$`));
+  const order = path.match(new RegExp(`^/orders/(${UUID})$`));
+  let view;
+  if (path === "/") view = await homeView();
+  else if (path === "/cart") view = await cartView();
+  else if (action) view = await actionView(action[1]);
+  else if (path === "/orders") view = await ordersView();
+  else if (order) view = await ordersView(order[1]);
+  else if (path === "/settings/clients") view = await clientsView();
+  else view = layout(h("p", {}, "페이지를 찾을 수 없습니다."), link("/", "처음으로"));
+  mount(app, view);
+  document.getElementById("main")?.focus();
 }
 
-function escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-}
+window.addEventListener("popstate", route);
+route();

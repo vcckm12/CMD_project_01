@@ -66,6 +66,25 @@ services:
     # `model` is the only network with a route out of Docker, used for the shared Ollama server (D-22).
     networks: [app, model]
 
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      SHOP_HOST: ${SHOP_HOST:-shop.example.internal}
+      OPS_HOST: ${OPS_HOST:-ops.example.internal}
+      OPS_ALLOW_CIDR: ${OPS_ALLOW_CIDR:-10.10.70.0/24}
+    volumes:
+      - ./deployment/nginx/templates:/etc/nginx/templates:ro
+      - ./secrets/tls/server.crt:/etc/nginx/tls/server.crt:ro
+      - ./secrets/tls/server.key:/etc/nginx/tls/server.key:ro
+      - ./frontend/shop:/usr/share/nginx/shop:ro
+    depends_on:
+      api: { condition: service_healthy }
+    # `edge` publishes 443; `app` reaches the API and Streamlit.
+    networks: [edge, app]
+
   audit-worker:
     build: { context: ./backend, target: runtime }
     command: ["python", "-m", "app.workers.audit_worker"]
@@ -130,3 +149,4 @@ networks:
   app:
     internal: true
   model: {}
+  edge: {}

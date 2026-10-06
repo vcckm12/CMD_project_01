@@ -134,6 +134,8 @@ flowchart TB
 
 Ollama는 다른 사용자도 쓰는 공유 서버(10.10.70.65)이므로 .149 단독 허용이 불가능하다. Windows 방화벽으로 11434를 10.10.70.0/24에만 허용하고 인터넷 공개를 금지한다. 같은 내부망 사용자가 모델을 직접 호출할 수 있다는 잔여 위험은 남지만 모델에는 DB·Tool 실행 권한이 없으므로 고객 데이터 접근 경로는 생기지 않는다. 다른 사용자의 동시 사용·다른 모델 적재는 지연과 모델 재적재(약 5초)를 유발하므로 지연 메트릭과 readiness의 모델 확인으로 관측한다. 2단계 외부 공개 전에 Ollama 앞에 인증 프록시를 두거나 전용 장비로 분리하는 방안을 재검토한다.
 
+구현된 Nginx(`deployment/nginx/templates`)는 SNI 이름으로 shop·ops를 나눈다. shop은 정적 웹과 `/api`·`/v1`만 프록시하고, `/api/v1/(audit|rulesets|alerts|lab|health/ready)`는 404를 반환한다. ops는 `OPS_ALLOW_CIDR`(기본 10.10.70.0/24)과 127.0.0.1만 허용하고 Streamlit만 프록시한다. 알 수 없는 호스트 이름은 444로 끊는다. `X-Edge-Channel`·`X-Real-IP`는 항상 덮어쓰고 클라이언트의 `X-Request-Id`는 제거한다. 접근 로그는 query string 없는 경로만 남긴다. 사설 CA·서버 인증서는 `scripts/gen_certs.py`로 만든다.
+
 FastAPI는 `X-Edge-Channel`로 진입 채널을 구분한다. shop Nginx는 클라이언트가 보낸 값과 무관하게 `shop`으로 덮어쓰고, Streamlit만 `ops`를 설정한다. FastAPI 포트는 app 내부망에만 있으므로 외부에서 `ops`를 위조할 경로가 없다. operator/admin 토큰은 ops 채널에서만, customer JWT·client token은 shop 채널에서만 허용한다. 관제·룰 API는 ops 채널이 아니면 404로 처리한다.
 
 초기 FastAPI는 1 process/worker로 두어 사용자별 메모리 rate limiter와 룰 캐시를 단순화한다. 2개 이상 프로세스로 확장하려면 공유 요청 예산 저장소와 모든 worker의 룰셋 준비 상태 확인을 먼저 추가한다. Nginx는 IP당 10 req/s·burst 20, FastAPI 챗봇은 사용자별 30 req/min·동시 추론 1건, 서버 전체 추론 동시 1건을 초기 제한으로 사용한다. 2026-10-02 실측에서 qwen3:8b는 생성 약 7.2 tokens/s, prompt 처리 약 80 tokens/s였다. 동시 2건은 각 요청 속도를 절반으로 낮추므로 대기열(최대 대기 30초 초과 시 429)로 처리한다. 추론 예산은 num_predict 512, num_ctx 8192, 호출당 120초, 요청 전체 240초, keep_alive 30분이다. 사용자 수·모델 서버 용량을 측정한 뒤 변경한다.

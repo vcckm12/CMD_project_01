@@ -64,6 +64,8 @@ flowchart LR
 
 모든 고객 화면 하단에 “AI 답변은 부정확할 수 있습니다. 상품·주문 정보와 변경 내용을 직접 확인해 주세요.”를 표시한다. 운영 가드레일은 `보안 보호 활성` badge로 표시하고 ON/OFF switch를 배치하지 않는다. 고객에게 regex·rule_id·DB·모델 raw metadata를 노출하지 않는다. 개인정보가 있을 수 있는 현재 입력을 analytics·browser console·외부 tracker에 전송하지 않는다.
 
+**구현 기준(2026-10-06):** 고객 웹은 빌드 단계 없는 ES module(`frontend/shop`)이다. 화면은 문자열 HTML을 쓰지 않고 모든 동적 값을 DOM text node로만 넣는다. AI 답변은 문단·목록·`**굵게**`만 지원하는 자체 렌더러로 표시한다. 따라서 DOMPurify·Markdown 라이브러리 없이도 HTML 실행과 외부 이미지 요청이 구조적으로 불가능하다. access token은 메모리에만 두고, 새로고침하면 refresh cookie로 복구한다. 세션 cookie가 없으면 refresh를 호출하지 않는다. 변경 확인의 Idempotency-Key는 action별로 sessionStorage에 보관해 재시도에도 재사용한다.
+
 ## 2. SCR-C01 — 로그인·회원가입
 
 ```text
