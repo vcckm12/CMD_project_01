@@ -151,6 +151,8 @@ def settings(jwt_key_file, active_ruleset):
     return Settings(
         auth_database_url=_dsn("ag_auth", os.environ["TEST_AUTH_PASSWORD"]),
         chat_database_url=_dsn("ag_chat", os.environ["TEST_CHAT_PASSWORD"]),
+        audit_reader_database_url=_dsn("ag_audit_reader", os.environ["TEST_AUDIT_READER_PASSWORD"]),
+        rules_database_url=_dsn("ag_rules", os.environ["TEST_RULES_PASSWORD"]),
         jwt_private_key_file=jwt_key_file,
         input_fingerprint_key="test-fingerprint-key-" + "x" * 16,
     )

@@ -134,13 +134,15 @@ preview는 모델이 쓴 문장 대신 서버가 조회한 상품명·변경 전
 | RULE-05 | POST /api/v1/rulesets/{id}/validate | admin, body {} | 200 validated 또는 422 validation_failed·고정 failure codes |
 | RULE-06 | POST /api/v1/rulesets/{id}/publish | admin, password 재인증·expected_active_id | 200 active·checksum, 실패 시 기존 active 유지 |
 | RULE-07 | POST /api/v1/rulesets/{id}/rollback | admin, retired 대상·password·expected_active_id | 200 이전 검증 버전 active |
+| ALERT-01 | GET /api/v1/alerts | operator/admin, state=open·acknowledged | 경보 목록(입력 지문은 앞 12자만) |
+| ALERT-02 | POST /api/v1/alerts/{id}/acknowledge | operator/admin | 확인 처리, 감사 이벤트 기록 |
 | HEALTH-01 | GET /api/v1/health/live | 공개, 상세 데이터 없음 | 200 alive |
 | HEALTH-02 | GET /api/v1/health/ready | 내부 모니터·operator/admin | 200 ready 또는 503, 구성요소별 정상 여부 |
 | LAB-01 | POST /api/v1/lab/ab-runs | lab admin, ops 채널, APP_ENV=lab만 등록, dataset_id·categories | 202 run_id |
 | LAB-02 | GET /api/v1/lab/ab-runs/{id} | lab admin | 진행률·사례별 OFF/ON status·노출 여부·막은 계층·rule_ids |
 | LAB-03 | GET /api/v1/lab/ab-runs/{id}/report | lab admin, format=pdf | application/pdf, no-store |
 
-PUT ruleset은 rule_id·stage·category·kind·pattern·flags·action·marker·priority와 policy allowlist만 허용한다. DB에 없는 필드, 길이 제한 완화, 강제 가드레일 해제를 거부한다. 게시 재인증 비밀번호는 모델·DB payload·로그에 저장하지 않는다. 변경 충돌은 409 RULESET_CONFLICT, compile·검증 실패는 422 RULESET_VALIDATION_FAILED다. 게시·롤백도 outbox와 함께 transaction으로 기록한다.
+PUT ruleset은 rule_id·stage·category·kind·pattern·flags·action·marker·priority와 policy allowlist만 허용한다. DB에 없는 필드, 길이 제한 완화, 강제 가드레일 해제를 거부한다. 게시 재인증 비밀번호는 모델·DB payload·로그에 저장하지 않는다. 변경 충돌은 409 RULESET_CONFLICT, compile·검증 실패는 422 RULESET_VALIDATION_FAILED이고 고정 failure code 목록을 `error.details`로 준다. 게시·롤백의 비밀번호 재확인 실패는 403 REAUTH_FAILED다. 게시가 성공하면 같은 프로세스의 snapshot을 즉시 교체한다. AUDIT·RULE·ALERT API는 ops 채널이 아니면 404, 고객 토큰이면 403이다. 이벤트 목록 cursor는 (occurred_at, event_id) keyset을 HMAC으로 서명한 값이다. 게시·롤백도 outbox와 함께 transaction으로 기록한다.
 
 관제 목록에는 원문·token_hash·password_hash를 반환하지 않는다. category_counts는 이벤트 수가 아니라 rule_hits 수의 합계임을 명시한다. stats는 비동기 적재된 audit.events 기준이며 `ingestion_lag_seconds`와 `as_of`를 함께 제공한다. PDF는 동일 필터·시간대·지연·룰 버전을 표시하고 사용자 본문을 포함하지 않는다. 이벤트가 10,000건 초과하면 422 REPORT_TOO_LARGE로 범위 축소를 안내한다.
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.api import actions, auth, chat, compat, health, shop
+from app.api import actions, auth, chat, compat, health, ops, rulesets, shop
 from app.chat.service import UserBudget
 from app.config import Settings, get_settings
 from app.context import RequestContextMiddleware
@@ -42,7 +42,12 @@ def create_app(settings: Settings | None = None, *, ollama_transport=None) -> Fa
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.pools = Pools(settings.auth_database_url, settings.chat_database_url)
+        app.state.pools = Pools(
+            settings.auth_database_url,
+            settings.chat_database_url,
+            settings.audit_reader_database_url,
+            settings.rules_database_url,
+        )
         await app.state.pools.open()
         app.state.alert_monitor.pool = app.state.pools.chat
         if app.state.pools.chat is not None:
@@ -113,6 +118,8 @@ def create_app(settings: Settings | None = None, *, ollama_transport=None) -> Fa
     app.include_router(compat.router)
     app.include_router(shop.router)
     app.include_router(actions.router)
+    app.include_router(ops.router)
+    app.include_router(rulesets.router)
     return app
 
 

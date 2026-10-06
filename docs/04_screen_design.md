@@ -66,6 +66,8 @@ flowchart LR
 
 **구현 기준(2026-10-06):** 고객 웹은 빌드 단계 없는 ES module(`frontend/shop`)이다. 화면은 문자열 HTML을 쓰지 않고 모든 동적 값을 DOM text node로만 넣는다. AI 답변은 문단·목록·`**굵게**`만 지원하는 자체 렌더러로 표시한다. 따라서 DOMPurify·Markdown 라이브러리 없이도 HTML 실행과 외부 이미지 요청이 구조적으로 불가능하다. access token은 메모리에만 두고, 새로고침하면 refresh cookie로 복구한다. 세션 cookie가 없으면 refresh를 호출하지 않는다. 변경 확인의 Idempotency-Key는 action별로 sessionStorage에 보관해 재시도에도 재사용한다.
 
+관제 Streamlit(`frontend/ops`)은 `unsafe_allow_html`을 쓰지 않고 답변·요약을 `st.text`·`st.dataframe`으로만 표시한다. 사용자별 API client는 `st.session_state`에만 둔다. refresh·CSRF cookie는 Secure cookie라 내부 HTTP 호출에 자동으로 실리지 않으므로, client가 메모리에 보관해 명시적으로 첨부한다. 대시보드 통계는 `st.fragment`로 10초마다 갱신한다.
+
 ## 2. SCR-C01 — 로그인·회원가입
 
 ```text

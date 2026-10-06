@@ -309,7 +309,9 @@ def test_retention_deletes_only_what_policy_allows(user_with_cart):
         assert not exists("commerce.refresh_tokens", "id", tokens["revoked_old"])
         assert exists("commerce.refresh_tokens", "id", tokens["revoked_new"])
         # The deliberately old pending row would otherwise trip the readiness backlog check later.
-        conn.execute("DELETE FROM audit.outbox WHERE event_id = ANY(%s)", ([outbox["pending_old"], outbox["dead_old"]],))
+        conn.execute(
+            "DELETE FROM audit.outbox WHERE event_id = ANY(%s)", ([outbox["pending_old"], outbox["dead_old"]],)
+        )
 
 
 def test_worker_roles_stay_in_their_lane():

@@ -17,7 +17,8 @@
 | Tool·변경 승인(ACTION-01~04)·쇼핑 조회(SHOP-01~06) | 완료 |
 | 감사 worker·스케줄러 | 완료 |
 | Nginx·TLS·고객 웹 | 완료 (브라우저 E2E 통과) |
-| Streamlit 관제 / lab ON·OFF 비교 | 예정 |
+| 관제 API·Streamlit(대시보드·감사·경보·룰 게시·PDF·검증 챗) | 완료 (브라우저 E2E 통과) |
+| lab ON·OFF 비교 | 예정 |
 
 ## 로컬 실행 (현재 단계: DB)
 
@@ -34,7 +35,7 @@ API 서버(현재 인증·health만 제공):
 
 ```bash
 python scripts/gen_jwt_key.py              # secrets/jwt_private.pem (cryptography 필요)
-docker compose up -d --wait api audit-worker scheduler
+docker compose up -d --wait api audit-worker scheduler streamlit nginx
 # 관리자 계정은 공개 API가 아닌 내부 명령으로만 생성 (비밀번호는 프롬프트로 입력)
 docker compose exec api python -m app.cli.create_user --email admin@example.internal --role admin
 ```

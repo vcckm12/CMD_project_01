@@ -48,6 +48,7 @@ services:
       AUTH_DATABASE_URL: postgresql://ag_auth:${AG_AUTH_PASSWORD}@postgres:5432/${AG_DB_NAME:-ai_guardrail}
       CHAT_DATABASE_URL: postgresql://ag_chat:${AG_CHAT_PASSWORD}@postgres:5432/${AG_DB_NAME:-ai_guardrail}
       RULES_DATABASE_URL: postgresql://ag_rules:${AG_RULES_PASSWORD}@postgres:5432/${AG_DB_NAME:-ai_guardrail}
+      AUDIT_READER_DATABASE_URL: postgresql://ag_audit_reader:${AG_AUDIT_READER_PASSWORD}@postgres:5432/${AG_DB_NAME:-ai_guardrail}
       JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
       SHOP_ORIGIN: ${SHOP_ORIGIN:-https://shop.example.internal}
       OPS_ORIGIN: ${OPS_ORIGIN:-https://ops.example.internal}
@@ -84,6 +85,16 @@ services:
       api: { condition: service_healthy }
     # `edge` publishes 443; `app` reaches the API and Streamlit.
     networks: [edge, app]
+
+  streamlit:
+    build: { context: ./frontend/ops }
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://api:8000
+      OPS_ORIGIN: ${OPS_ORIGIN:-https://ops.example.internal}
+    depends_on:
+      api: { condition: service_healthy }
+    networks: [app]
 
   audit-worker:
     build: { context: ./backend, target: runtime }
@@ -134,6 +145,7 @@ services:
       TEST_AUDIT_WORKER_PASSWORD: ${AG_AUDIT_WORKER_PASSWORD}
       TEST_MAINTENANCE_PASSWORD: ${AG_MAINTENANCE_PASSWORD}
       TEST_RETENTION_PASSWORD: ${AG_RETENTION_PASSWORD}
+      TEST_AUDIT_READER_PASSWORD: ${AG_AUDIT_READER_PASSWORD}
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [app]

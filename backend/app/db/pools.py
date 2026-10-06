@@ -14,17 +14,28 @@ def _pool(url: str, name: str, max_size: int) -> AsyncConnectionPool:
 
 
 class Pools:
-    def __init__(self, auth_url: str, chat_url: str | None = None) -> None:
+    def __init__(
+        self,
+        auth_url: str,
+        chat_url: str | None = None,
+        audit_url: str | None = None,
+        rules_url: str | None = None,
+    ) -> None:
         self.auth = _pool(auth_url, "auth", 5)
-        # chat: shop_reader + shop_writer + rule_reader + audit_ingest (also loads the active ruleset)
+        # chat: shop_reader + shop_writer + rule_reader + audit_ingest + alert_writer
         self.chat = _pool(chat_url, "chat", 5) if chat_url else None
+        # audit: audit_reader + alert_manager (ops dashboard; no commerce data, no payloads)
+        self.audit = _pool(audit_url, "audit", 3) if audit_url else None
+        # rules: rule_publisher + rule_reader + audit_ingest (admin ruleset changes)
+        self.rules = _pool(rules_url, "rules", 2) if rules_url else None
+
+    def _all(self) -> list[AsyncConnectionPool]:
+        return [p for p in (self.auth, self.chat, self.audit, self.rules) if p is not None]
 
     async def open(self) -> None:
-        await self.auth.open(wait=True, timeout=30)
-        if self.chat:
-            await self.chat.open(wait=True, timeout=30)
+        for pool in self._all():
+            await pool.open(wait=True, timeout=30)
 
     async def close(self) -> None:
-        if self.chat:
-            await self.chat.close()
-        await self.auth.close()
+        for pool in reversed(self._all()):
+            await pool.close()

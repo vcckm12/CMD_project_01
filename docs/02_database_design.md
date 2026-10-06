@@ -464,9 +464,10 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA commerce FROM PUBLIC;
 | 감사 worker | audit_worker | commerce 조회·변경 없음 |
 | 관제 조회·PDF | audit_reader | 본문·토큰 데이터 접근 없음 |
 | 감사 worker | audit_worker + alert_writer | outbox 청구·적재·dead 경보, commerce 접근 없음 |
+| 관제 읽기 보강 | audit_reader에 outbox (delivery_state, created_at)·rulesets (id, version_label) 열 SELECT만 | 적재 지연·룰 버전 이름 표시, payload·룰 원문 접근 없음(migration 0005) |
 | backlog 확인 | audit_ingest에 outbox (delivery_state, created_at) 열 SELECT만 | readiness가 payload 없이 적체량·경과 시간만 조회(migration 0004) |
 | 경보 기록 | 챗 pool에 alert_writer 추가 | INSERT와 occurrences·last_seen_at·severity UPDATE만, 확인 처리 불가 |
-| 경보 확인 | alert_manager (관제 pool, 관제 단계에서 연결) | state·acknowledged_by·acknowledged_at UPDATE만 |
+| 경보 확인 | alert_manager (관제 pool `ag_audit_reader`에 함께 부여) | state·acknowledged_by·acknowledged_at UPDATE만 |
 | 만료 처리 | maintenance_worker | Scheduler 전용, pending→expired·쿠폰 expired와 system outbox를 같은 transaction에 기록 |
 | 보존 정리 | retention_worker | Scheduler 전용 삭제 작업, UPDATE·outbox 권한 없음, 외부 API 없음 |
 

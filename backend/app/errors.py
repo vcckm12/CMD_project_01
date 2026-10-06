@@ -39,23 +39,38 @@ FIXED_MESSAGES: dict[str, str] = {
     "ACTION_TERMINAL": "이미 처리가 끝난 요청입니다.",
     "ACTION_EXPIRED": "확인 시간이 지났습니다. 다시 요청해 주세요.",
     "IDEMPOTENCY_CONFLICT": "다른 요청에 이미 사용된 확인 키입니다.",
+    "REPORT_TOO_LARGE": "보고서 범위가 너무 큽니다. 기간(최대 31일)이나 대상(최대 10,000건)을 줄여 주세요.",
+    "RULESET_CONFLICT": "다른 변경이 먼저 반영되었습니다. 목록을 새로 고친 뒤 다시 시도해 주세요.",
+    "RULESET_VALIDATION_FAILED": "룰셋 검증에 실패했습니다.",
+    "REAUTH_FAILED": "비밀번호 재확인에 실패했습니다.",
     "INTERNAL_ERROR": "일시적인 오류가 발생했습니다.",
 }
 
 
 class ApiError(Exception):
     def __init__(
-        self, status: int, code: str, headers: dict[str, str] | None = None, reason: str | None = None
+        self,
+        status: int,
+        code: str,
+        headers: dict[str, str] | None = None,
+        reason: str | None = None,
+        details: list[str] | None = None,
     ) -> None:
         super().__init__(code)
         self.status = status
         self.code = code
         self.headers = headers or {}
         self.reason = reason  # fixed machine-readable detail (e.g. MIN_SUBTOTAL_NOT_MET), never free text
+        self.details = details  # fixed codes only (e.g. ruleset validation failures)
 
 
 def error_response(
-    request: Request, status: int, code: str, headers: dict[str, str] | None = None, reason: str | None = None
+    request: Request,
+    status: int,
+    code: str,
+    headers: dict[str, str] | None = None,
+    reason: str | None = None,
+    details: list[str] | None = None,
 ) -> JSONResponse:
     request_id = getattr(request.state, "request_id", None)
     if request.url.path.startswith("/v1/"):
@@ -66,13 +81,15 @@ def error_response(
         body = {"request_id": request_id, "error": {"code": code, "message": FIXED_MESSAGES[code]}}
         if reason:
             body["error"]["reason"] = reason
+        if details:
+            body["error"]["details"] = details
     return JSONResponse(body, status_code=status, headers=headers)
 
 
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
-        return error_response(request, exc.status, exc.code, exc.headers, exc.reason)
+        return error_response(request, exc.status, exc.code, exc.headers, exc.reason, exc.details)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
