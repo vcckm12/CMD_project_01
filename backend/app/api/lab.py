@@ -40,6 +40,15 @@ async def start(request: Request, body: RunRequest, ctx: Admin) -> JSONResponse:
     return ok(request, {"run_id": run.run_id, "total": run.total}, 202)
 
 
+@router.get("/inputs/{event_id}")
+async def get_input(request: Request, event_id: uuid.UUID, ctx: Admin) -> JSONResponse:
+    """The inspected messages of a blocked lab chat request (kept in memory; 404 after restart)."""
+    messages = request.app.state.lab_inputs.get(str(event_id))
+    if messages is None:
+        raise ApiError(404, "NOT_FOUND")
+    return ok(request, {"event_id": str(event_id), "messages": messages})
+
+
 @router.get("/ab-runs/{run_id}")
 async def get_run(request: Request, run_id: uuid.UUID, ctx: Admin) -> JSONResponse:
     run = request.app.state.lab.runs.get(str(run_id))

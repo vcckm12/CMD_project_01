@@ -129,9 +129,11 @@ def create_app(settings: Settings | None = None, *, ollama_transport=None) -> Fa
     if lab:
         # The ON/OFF comparison exists only in the separate lab stack (D-21); production never registers it.
         from app.api import lab as lab_api
+        from app.lab.inputs import LabInputStore
         from app.lab.runner import ABRunner
 
         app.state.lab = ABRunner(app.state.ollama, app.state.guardrails, app.state.rule_cache)
+        app.state.lab_inputs = LabInputStore()
         app.include_router(lab_api.router)
     return app
 

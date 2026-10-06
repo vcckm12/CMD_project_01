@@ -21,6 +21,7 @@ from app.api.auth import ok
 from app.audit.outbox import AuditEnvelope, persist_event
 from app.audit.report import build_report_pdf
 from app.errors import ApiError
+from app.guardrails.rule_descriptions import describe
 from app.security.auth import AuthContext, require_staff
 
 router = APIRouter(prefix="/api/v1", tags=["ops"])
@@ -162,7 +163,7 @@ async def get_event(request: Request, event_id: uuid.UUID, ctx: Staff) -> JSONRe
         request,
         {
             **_event_view(row),
-            "rule_hits": hits,
+            "rule_hits": [{**h, "description": describe(h["rule_id"], h["category"])} for h in hits],
             "tool_executions": [
                 {
                     **t,

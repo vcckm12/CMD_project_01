@@ -184,9 +184,12 @@ class FakeModel:
             self.judge_calls.append(body)
             system = body["messages"][0]["content"]
             target = (
-                "output" if "ASSISTANT ANSWER" in system
-                else "tool" if "TOOL RESULT" in system
-                else "context" if "CLIENT CONTEXT" in system
+                "output"
+                if "ASSISTANT ANSWER" in system
+                else "tool"
+                if "TOOL RESULT" in system
+                else "context"
+                if "CLIENT CONTEXT" in system
                 else "input"
             )
             label = self.judge[target]

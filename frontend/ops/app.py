@@ -195,10 +195,33 @@ def event_detail() -> None:
     st.subheader("마스킹 요약")
     st.text(e["summary_redacted"])
     st.subheader("룰 적중")
-    st.dataframe(pd.DataFrame(e["rule_hits"]), hide_index=True) if e["rule_hits"] else st.caption("없음")
+    if e["rule_hits"]:
+        hits = pd.DataFrame(e["rule_hits"])
+        hits = hits[["rule_id", "description", *[c for c in hits.columns if c not in ("rule_id", "description")]]]
+        st.dataframe(hits.rename(columns={"description": "설명"}), hide_index=True)
+    else:
+        st.caption("없음")
     st.subheader("Tool 실행")
     st.dataframe(pd.DataFrame(e["tool_executions"]), hide_index=True) if e["tool_executions"] else st.caption("없음")
-    st.caption("원문 입력·답변은 저장하지 않으므로 볼 수 없습니다. 관리자는 고객 승인을 대신할 수 없습니다.")
+    if lab_available():
+        lab_blocked_input(event_id, e["status"])
+    else:
+        st.caption("원문 입력·답변은 저장하지 않으므로 볼 수 없습니다. 관리자는 고객 승인을 대신할 수 없습니다.")
+
+
+def lab_blocked_input(event_id: str, status: str) -> None:
+    st.subheader("차단된 입력 원문 (LAB 전용 · 합성 데이터)")
+    if status != "blocked":
+        st.caption("LAB에서도 원문은 차단된 채팅 요청만 보관합니다.")
+        return
+    try:
+        messages = client().get(f"/api/v1/lab/inputs/{event_id}")["messages"]
+    except Exception:  # noqa: BLE001 - 404: not a chat request, or kept only in memory before an API restart
+        st.caption("보관된 원문이 없습니다. 채팅 요청이 아니거나 LAB API가 재시작되어 메모리에서 지워졌습니다.")
+        return
+    for m in messages:
+        st.caption(m["role"])
+        st.text(m["content"])  # plain text: never rendered as markdown/HTML
 
 
 # ------------------------------------------------------------------------------- alerts

@@ -261,6 +261,9 @@ class ChatService:
             turn, snapshot, status, stage, hits, tool_execs, input_ms, output_ms, summary, signals,
             reply_for_context, proposal,
         )  # fmt: skip
+        lab_inputs = getattr(self.state, "lab_inputs", None)  # set only when APP_ENV=lab (synthetic data)
+        if lab_inputs is not None and status == "blocked":
+            lab_inputs.put(str(event_id), [(m.role, m.content) for m in turn.inspect])
         action = None
         if action_row is not None:
             action = {

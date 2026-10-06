@@ -90,6 +90,7 @@ def test_events_list_detail_and_signed_cursor(client, operator, fake_model):
     ]
     assert detail["status"] == "blocked" and detail["stage"] == "input"
     assert {h["rule_id"] for h in detail["rule_hits"]} >= {"RULE_IGNORE_INSTRUCTIONS"}
+    assert all(h["description"] for h in detail["rule_hits"])  # plain-language rule description
     assert "Ignore" not in str(detail)  # no raw input anywhere in the audit view
 
 
