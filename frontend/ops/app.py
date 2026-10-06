@@ -88,7 +88,12 @@ def dashboard() -> None:
     st.header("관제 대시보드")
     start, end = period_filter("dash")
     c1, c2 = st.columns(2)
-    session = c1.text_input("세션 ID (선택)", key="dash-session").strip() or None
+    session = (
+        c1.text_input(
+            "세션 ID (선택)", key="dash-session", help="이벤트 목록의 '세션 ID' 칸 값입니다. event_id와 다릅니다."
+        ).strip()
+        or None
+    )
     status = c2.selectbox("상태", ["(전체)", *STATUSES], key="dash-status")
 
     @st.fragment(run_every=10)
@@ -164,9 +169,9 @@ def _events_list(start: str, end: str, session: str | None, status: str | None) 
         return
     frame = pd.DataFrame([{"시각(KST)": kst(e["occurred_at"]), "source": e["source"], "status": e["status"],
                            "stage": e["stage"], "total_ms": e["total_ms"], "요약": e["summary_redacted"],
-                           "event_id": e["event_id"]} for e in rows])  # fmt: skip
+                           "event_id": e["event_id"], "세션 ID": e["session_id"] or ""} for e in rows])  # fmt: skip
     st.dataframe(frame, hide_index=True, use_container_width=True)
-    st.caption("event_id를 감사 상세 메뉴에 붙여 넣어 룰 적중과 Tool 실행을 확인하세요.")
+    st.caption("event_id는 감사 상세 메뉴에, 세션 ID는 위 '세션 ID' 필터나 보고서에 넣으면 그 대화의 이벤트만 봅니다.")
 
 
 # ----------------------------------------------------------------------- SCR-O03 detail
@@ -318,7 +323,10 @@ def rules_page() -> None:
 def report_page() -> None:
     st.header("세션 보고서")
     start, end = period_filter("report", max_days=31)
-    session = st.text_input("세션 ID (선택)", key="report-session").strip() or None
+    session = (
+        st.text_input("세션 ID (선택)", key="report-session", help="대시보드 이벤트 목록의 '세션 ID' 칸 값입니다.").strip()
+        or None
+    )
     if st.button("미리보기"):
         try:
             st.session_state.report_preview = client().get("/api/v1/audit/stats", **{"from": start, "to": end,
