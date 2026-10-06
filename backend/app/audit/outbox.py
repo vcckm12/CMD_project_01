@@ -19,6 +19,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 Status = Literal["success", "blocked", "masked", "confirmation_required", "error"]
 Stage = Literal["input", "execution", "output", "policy"]
 Source = Literal["web", "anythingllm", "streamlit", "system"]
+Layer = Literal["input_rules", "input_judge", "tool_rules", "tool_judge", "output_rules", "output_judge"]
+
+
+class LayerResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    verdict: Literal["block", "pass", "error"]
+    ms: float = Field(ge=0)
 
 
 class RuleHit(BaseModel):
@@ -60,6 +68,9 @@ class AuditEnvelope(BaseModel):
     total_ms: float = Field(default=0, ge=0)
     summary_redacted: str = Field(max_length=2000)
     occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    # Per-layer verdicts (D-36): {"input_rules": {"verdict": "block", "ms": 0.4}, ...}; absent = not run.
+    layers: dict[Layer, LayerResult] = Field(default_factory=dict)
+    model_ms: float = Field(default=0, ge=0)  # model generation time, for the per-layer time shares
     rule_hits: tuple[RuleHit, ...] = Field(default=(), max_length=128)
     tool_executions: tuple[ToolExecution, ...] = Field(default=(), max_length=6)
 

@@ -23,6 +23,7 @@ from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from pydantic import ValidationError
 
 from app.audit.outbox import AuditEnvelope
@@ -45,11 +46,13 @@ async def _insert_event(cur: psycopg.AsyncCursor, env: AuditEnvelope) -> bool:
     await cur.execute(
         "INSERT INTO audit.events (event_id, request_id, actor_id, session_id, source, api_path, model, status,"
         " stage, ruleset_version, input_chars, output_chars, input_ms, output_ms, total_ms, summary_redacted,"
-        " occurred_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " occurred_at, layers, model_ms)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         " ON CONFLICT (event_id) DO NOTHING",
         (env.event_id, env.request_id, env.actor_id, env.session_id, env.source, env.api_path, env.model, env.status,
          env.stage, env.ruleset_version, env.input_chars, env.output_chars, env.input_ms, env.output_ms, env.total_ms,
-         env.summary_redacted, env.occurred_at),
+         env.summary_redacted, env.occurred_at, Jsonb({k: v.model_dump() for k, v in env.layers.items()}),
+         env.model_ms),
     )  # fmt: skip
     if cur.rowcount == 0:
         return False

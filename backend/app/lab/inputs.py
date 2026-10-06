@@ -1,7 +1,8 @@
-"""Lab-only view of what a blocked request said (D-21: synthetic data only).
+"""Lab-only view of what a chat request said (D-21: synthetic data only; D-30, D-37).
 
-Production never stores user text in audit. The lab stack keeps the inspected messages of blocked chat
-requests in API process memory (bounded, lost on restart) so a demo can show what was blocked.
+Production never stores user text in audit. The lab stack keeps the inspected messages of every chat
+request in API process memory (bounded, lost on restart) so a demo can show what was blocked and replay
+an event with the guardrail OFF and ON.
 """
 
 from __future__ import annotations
@@ -25,3 +26,8 @@ class LabInputStore:
 
     def get(self, event_id: str) -> list[dict] | None:
         return self._items.get(event_id)
+
+    def last_user_text(self, event_id: str) -> str | None:
+        messages = self._items.get(event_id) or []
+        users = [m["content"] for m in messages if m["role"] == "user"]
+        return users[-1] if users else None

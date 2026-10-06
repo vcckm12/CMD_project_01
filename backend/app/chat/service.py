@@ -17,13 +17,13 @@ from dataclasses import dataclass, field
 
 from psycopg.types.json import Jsonb
 
-from app.audit.outbox import AuditEnvelope, RuleHit, ToolExecution, elapsed_ms, persist_event
+from app.audit.outbox import AuditEnvelope, LayerResult, RuleHit, ToolExecution, elapsed_ms, persist_event
 from app.errors import ApiError
 from app.guardrails import pii
 from app.guardrails.budget import Budget
 from app.guardrails.input_guardrail import InputMessage
 from app.guardrails.output_guardrail import BLOCKED_MESSAGE
-from app.guardrails.pipeline import GuardrailPipeline, GuardrailUnavailable
+from app.guardrails.pipeline import GuardrailPipeline, GuardrailUnavailable, merge_layers
 from app.guardrails.ruleset import RuleSnapshot
 from app.guardrails.types import GuardrailTimeout, Hit, OutputTooLong
 from app.security.auth import AuthContext
@@ -82,6 +82,9 @@ class ChatTurn:
     max_tokens: int | None = None
     # Streaming clients get stage events (input_check, generating, tool, output_check); stages only, no text.
     progress: Callable[..., Awaitable[None]] | None = None
+    # Filled while the turn runs (D-36): per-layer verdicts and model generation time for the audit event.
+    layers: dict[str, tuple[str, float]] = field(default_factory=dict)
+    model_ms: float = 0.0
 
     async def report(self, stage: str, **data) -> None:
         if self.progress is not None:
@@ -223,7 +226,10 @@ class ChatService:
         signals = turn.risk_signals
         try:
             await turn.report("input_check")
-            inspection, _ = await self.pipeline.check_input(turn.inspect, turn.risk_signals, snapshot, turn.judge_texts)
+            inspection, timing = await self.pipeline.check_input(
+                turn.inspect, turn.risk_signals, snapshot, turn.judge_texts
+            )
+            merge_layers(turn.layers, timing.layers)
             input_ms = inspection.input_ms
             hits.extend(inspection.hits)
             signals = inspection.risk_signals
@@ -240,6 +246,8 @@ class ChatService:
                     )  # fmt: skip
                     hits.extend(generated.hits)
                     tool_execs.extend(generated.tool_executions)
+                    merge_layers(turn.layers, generated.layers)
+                    turn.model_ms += generated.inference_ms
                     prompt_tokens += generated.prompt_tokens
                     completion_tokens += generated.completion_tokens
                     claimed = (
@@ -261,7 +269,8 @@ class ChatService:
                     content = proposal_message(proposal.preview)  # server text; no model output to inspect
                 else:
                     await turn.report("output_check")
-                    sanitized, _ = await self.pipeline.check_output(generated.content, snapshot)
+                    sanitized, timing = await self.pipeline.check_output(generated.content, snapshot)
+                    merge_layers(turn.layers, timing.layers)
                     output_ms = sanitized.output_ms
                     hits.extend(sanitized.hits)
                     if sanitized.blocked:
@@ -300,7 +309,7 @@ class ChatService:
             reply_for_context, proposal,
         )  # fmt: skip
         lab_inputs = getattr(self.state, "lab_inputs", None)  # set only when APP_ENV=lab (synthetic data)
-        if lab_inputs is not None and status == "blocked":
+        if lab_inputs is not None:  # every lab chat input, so any lab event can be replayed OFF/ON (D-37)
             lab_inputs.put(str(event_id), [(m.role, m.content) for m in turn.inspect])
         action = None
         if action_row is not None:
@@ -338,6 +347,8 @@ class ChatService:
                 output_ms=output_ms,
                 total_ms=elapsed_ms(turn.started),
                 summary_redacted=summary[:2000],
+                layers={k: LayerResult(verdict=v, ms=ms) for k, (v, ms) in turn.layers.items()},
+                model_ms=round(turn.model_ms, 3),
                 rule_hits=tuple(merge_hits(hits)),
                 tool_executions=tuple(executions[-6:]),
             )

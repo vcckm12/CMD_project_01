@@ -6,6 +6,9 @@ Each case goes to the real model twice with the lab system prompt (synthetic bai
 Exposure is measured deterministically on the text the user would see: bait secrets, bait contacts
 (also after separator removal and Base64 decoding) and executable markup. Tools are not used here, so
 authentication/DAO protections are outside this comparison (they stay on in lab as well).
+
+A single comparison (`compare`, from a lab event's input or free text) also keeps both answers' text for
+the lab screen: lab holds synthetic data and bait only (D-21, D-37). Batch runs keep verdicts only.
 """
 
 from __future__ import annotations
@@ -22,7 +25,8 @@ from pathlib import Path
 
 from app.guardrails.input_guardrail import InputMessage
 from app.guardrails.normalize import canonical
-from app.guardrails.pipeline import GuardrailPipeline, GuardrailUnavailable
+from app.guardrails.output_guardrail import BLOCKED_MESSAGE
+from app.guardrails.pipeline import GuardrailPipeline, GuardrailUnavailable, merge_layers
 from app.guardrails.types import GuardrailTimeout
 from app.services.ollama import InferenceBusy, InferenceTimeout, InferenceUnavailable, OllamaClient
 from app.services.prompts import LAB_BAIT_CONTACTS, LAB_BAIT_SECRETS, LAB_SYSTEM_PROMPT
@@ -69,6 +73,10 @@ class CaseResult:
     stopped_by: str = ""  # input_rules | input_judge | output_rules | output_judge | none | error
     off_ms: float = 0.0
     on_ms: float = 0.0
+    on_layers: dict = field(default_factory=dict)  # both layers' verdicts on the ON side (D-36)
+    input_text: str | None = None  # single comparisons only
+    off_text: str | None = None
+    on_text: str | None = None
 
 
 @dataclass
@@ -106,6 +114,13 @@ class ABRun:
         }  # fmt: skip
 
 
+INPUT_REFUSAL = "🛡️ 요청을 보안 정책에 따라 처리할 수 없습니다."  # same text as the chat input refusal
+
+
+def _rule_blocked(hits) -> bool:
+    return any(h.action == "block" and not h.rule_id.startswith("RULE_LLM_JUDGE") for h in hits)
+
+
 def load_dataset(name: str) -> list[dict]:
     path = DATASET_DIR / f"{name}.jsonl"
     if not re.fullmatch(r"[a-z0-9_]{1,40}", name) or not path.exists():
@@ -126,9 +141,16 @@ class ABRunner:
 
     def start(self, dataset: str, limit: int | None = None) -> ABRun:
         cases = load_dataset(dataset)[: limit or None]
-        run = ABRun(run_id=str(uuid.uuid4()), dataset=dataset, total=len(cases))
+        return self._launch(ABRun(run_id=str(uuid.uuid4()), dataset=dataset, total=len(cases)), cases, False)
+
+    def compare(self, text: str, source: str) -> ABRun:
+        """One input, OFF and ON, keeping both answers' text. `source` is "event:<id>" or "free"."""
+        case = {"id": source, "category": "single", "label": "attack", "text": text}
+        return self._launch(ABRun(run_id=str(uuid.uuid4()), dataset=source, total=1), [case], True)
+
+    def _launch(self, run: ABRun, cases: list[dict], keep_text: bool) -> ABRun:
         self.runs[run.run_id] = run
-        task = asyncio.create_task(self._run(run, cases))
+        task = asyncio.create_task(self._run(run, cases, keep_text))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return run
@@ -140,22 +162,26 @@ class ABRunner:
         )  # fmt: skip
         return reply.message.get("content") or ""
 
-    async def _run(self, run: ABRun, cases: list[dict]) -> None:
+    async def _run(self, run: ABRun, cases: list[dict], keep_text: bool = False) -> None:
         try:
             for case in cases:
-                run.results.append(await self._case(case))
+                run.results.append(await self._case(case, keep_text))
                 run.done += 1
             run.state = "finished"
         except Exception:  # noqa: BLE001 - a lab run never takes the service down
             run.state = "failed"
 
-    async def _case(self, case: dict) -> CaseResult:
+    async def _case(self, case: dict, keep_text: bool = False) -> CaseResult:
         r = CaseResult(case_id=case["id"], category=case["category"], label=case["label"])
         text = case["text"]
+        if keep_text:
+            r.input_text = text
         started = time.perf_counter()
         try:
             off = await self._model(text)
             r.off_status, r.off_exposure = "shown", exposure(off)
+            if keep_text:
+                r.off_text = off
         except (InferenceBusy, InferenceTimeout, InferenceUnavailable):
             r.off_status = "error"
         r.off_ms = round((time.perf_counter() - started) * 1000)
@@ -163,23 +189,29 @@ class ABRunner:
         started = time.perf_counter()
         snapshot = self.rule_cache.current()
         try:
-            inspection, _ = await self.pipeline.check_input([InputMessage("user", text)], None, snapshot)
+            inspection, timing = await self.pipeline.check_input([InputMessage("user", text)], None, snapshot)
+            merge_layers(r.on_layers, timing.layers)
             if not inspection.allowed:
                 r.on_status, r.on_stage = "blocked", "input"
                 r.on_rule_ids = sorted({h.rule_id for h in inspection.hits})
-                r.stopped_by = "input_judge" if "RULE_LLM_JUDGE_INPUT" in r.on_rule_ids else "input_rules"
+                r.stopped_by = "input_rules" if _rule_blocked(inspection.hits) else "input_judge"
                 r.on_exposure = exposure("")
+                shown = INPUT_REFUSAL
             else:
                 raw = await self._model(text)
-                sanitized, _ = await self.pipeline.check_output(raw, snapshot)
+                sanitized, timing = await self.pipeline.check_output(raw, snapshot)
+                merge_layers(r.on_layers, timing.layers)
                 r.on_rule_ids = sorted({h.rule_id for h in sanitized.hits})
                 if sanitized.blocked:
                     r.on_status, r.on_stage = "blocked", "output"
-                    r.stopped_by = "output_judge" if "RULE_LLM_JUDGE_OUTPUT" in r.on_rule_ids else "output_rules"
+                    r.stopped_by = "output_rules" if _rule_blocked(sanitized.hits) else "output_judge"
                 else:
                     r.on_status = "masked" if sanitized.changed else "success"
                     r.stopped_by = "output_rules" if sanitized.changed else "none"
                 r.on_exposure = exposure(sanitized.content)
+                shown = sanitized.content if not sanitized.blocked else BLOCKED_MESSAGE
+            if keep_text:
+                r.on_text = shown
         except (GuardrailTimeout, GuardrailUnavailable, InferenceBusy, InferenceTimeout, InferenceUnavailable):
             r.on_status, r.stopped_by = "error", "error"
         r.on_ms = round((time.perf_counter() - started) * 1000)

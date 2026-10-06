@@ -91,6 +91,8 @@ def _event_view(row: dict) -> dict:
         "total_ms": float(row["total_ms"]),
         "summary_redacted": row["summary_redacted"],
         "occurred_at": row["occurred_at"].isoformat(),
+        "layers": row.get("layers") or {},
+        "model_ms": float(row.get("model_ms") or 0),
     }
 
 
@@ -208,6 +210,20 @@ async def compute_stats(conn, start: datetime, end: datetime, session_id: uuid.U
             params,
         )
     ).fetchall()
+    overlap = {}
+    for layer in ("input", "tool", "output"):  # fixed names, never user input
+        r, j = f"layers->'{layer}_rules'->>'verdict'", f"layers->'{layer}_judge'->>'verdict'"
+        row = await (
+            await conn.execute(
+                f"SELECT count(*) FILTER (WHERE {r} = 'block' AND {j} = 'block') AS both,"  # noqa: S608
+                f" count(*) FILTER (WHERE {r} = 'block' AND {j} = 'pass') AS rules_only,"
+                f" count(*) FILTER (WHERE {r} = 'pass' AND {j} = 'block') AS judge_only,"
+                f" count(*) FILTER (WHERE {r} = 'block' AND {j} = 'error') AS rules_judge_error"
+                f" FROM audit.events WHERE {where} AND layers ? '{layer}_judge'",
+                params,
+            )
+        ).fetchone()
+        overlap[layer] = {k: int(v) for k, v in row.items()}
     lag = await (
         await conn.execute(
             "SELECT coalesce(extract(epoch FROM now() - min(created_at)), 0) AS lag, now() AS as_of"
@@ -224,6 +240,8 @@ async def compute_stats(conn, start: datetime, end: datetime, session_id: uuid.U
         # Units differ on purpose: one event can match several rules (DES-005 §2.4).
         "category_counts": {r["category"]: int(r["n"]) for r in categories},
         "latency_p95_ms": float(p95["p95"]) if p95["p95"] is not None else None,
+        # Blocks by layer where both layers ran (D-36): which layer alone, or both, would have blocked.
+        "layer_overlap": overlap,
         "ruleset_versions": [{"id": str(v["id"]), "label": v["version_label"]} for v in versions],
         "as_of": lag["as_of"].isoformat(),
         "ingestion_lag_seconds": round(float(lag["lag"]), 1),

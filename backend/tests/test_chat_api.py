@@ -128,9 +128,12 @@ def test_input_rule_block_skips_model(client, customer, fake_model):
     body = r.json()
     assert r.status_code == 403 and body["status"] == "blocked" and body["guardrail"]["stage"] == "input"
     assert body["error"]["code"] == "GUARDRAIL_BLOCKED" and body["guardrail"]["rule_ids"] == []
-    assert fake_model.chat_calls == [] and fake_model.judge_calls == []
+    # The model never answers; the judge still gives its own verdict for the record (D-36).
+    assert fake_model.chat_calls == [] and len(fake_model.judge_calls) == 1
     event = outbox(r.headers["x-request-id"])
     assert event["status"] == "blocked" and event["stage"] == "input"
+    assert event["layers"]["input_rules"]["verdict"] == "block" and event["layers"]["input_judge"]["verdict"] == "pass"
+    assert "output_rules" not in event["layers"]
     assert {h["rule_id"] for h in event["rule_hits"]} >= {"RULE_IGNORE_INSTRUCTIONS"}
     assert "Ignore" not in json.dumps(event)
     stored = client.get(f"/api/v1/sessions/{customer['session']}", headers=bearer(customer["token"])).json()

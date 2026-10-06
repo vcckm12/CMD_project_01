@@ -18,7 +18,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from app.audit.outbox import ToolExecution
 from app.guardrails.execution_guardrail import ToolBudget, authorize_tool, available_tools
-from app.guardrails.pipeline import GuardrailPipeline
+from app.guardrails.pipeline import GuardrailPipeline, merge_layers
 from app.guardrails.ruleset import RuleSnapshot
 from app.guardrails.types import Hit
 from app.security.auth import AuthContext
@@ -45,6 +45,7 @@ class SlmResult:
     completion_tokens: int = 0
     inference_ms: float = 0.0
     judge_ms: float = 0.0
+    layers: dict[str, tuple[str, float]] = field(default_factory=dict)  # tool_rules / tool_judge (D-36)
     proposal: actions.Proposal | None = None  # a change tool call ends the loop as a pending proposal
 
 
@@ -202,6 +203,7 @@ class SLMService:
                 # Product text and other tool data are untrusted: same rules + judge as user input.
                 inspection, timing = await self.pipeline.check_tool(content, snapshot)
                 result.judge_ms += timing.judge_ms
+                merge_layers(result.layers, timing.layers)
                 if not inspection.allowed:
                     result.hits.extend(inspection.hits)
                     result.blocked_stage = "input"
