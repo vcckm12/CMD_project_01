@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from psycopg.types.json import Jsonb
 
-from app.audit.outbox import AuditEnvelope, RuleHit, Source, ToolExecution, elapsed_ms, persist_event
+from app.audit.outbox import AuditEnvelope, RuleHit, ToolExecution, elapsed_ms, persist_event
 from app.errors import ApiError
 from app.guardrails import pii
 from app.guardrails.budget import Budget
@@ -27,6 +27,7 @@ from app.guardrails.types import GuardrailTimeout, Hit, OutputTooLong
 from app.security.auth import AuthContext
 from app.services.ollama import InferenceBusy, InferenceTimeout, InferenceUnavailable
 from app.services.slm import ContextOverflow, SLMService
+from app.shop import actions
 
 MAX_CONTEXT_MESSAGES = 40
 MAX_STORED_CHARS = 2000
@@ -81,6 +82,24 @@ class ChatOutcome:
     total_ms: float
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    action: dict | None = None  # {action_id, expires_at, confirmation_url} when confirmation_required
+
+
+def proposal_message(preview: dict) -> str:
+    """Server-written confirmation text: the model's own words never describe a pending change."""
+    total = f"예상 합계 {preview['total_after']:,}원"
+    tool = preview["tool"]
+    if tool == "set_cart_item":
+        p = preview["product"]
+        body = f"{p['name']} 수량 {preview['quantity_before']}개 → {preview['quantity_after']}개"
+    elif tool == "remove_cart_item":
+        body = f"{preview['product']['name']} 장바구니에서 삭제"
+    elif tool == "apply_coupon":
+        body = f"쿠폰 {preview['coupon']['code']} 적용(할인 {preview['coupon']['discount_krw']:,}원)"
+    else:
+        body = "적용된 쿠폰 해제"
+    note = " 이 변경으로 현재 쿠폰 조건이 맞지 않아 쿠폰이 해제됩니다." if preview.get("notes") else ""
+    return f"장바구니 변경 확인이 필요합니다: {body}, {total}.{note} 확인 화면에서 승인해야 적용됩니다."
 
 
 class UserBudget:
@@ -178,6 +197,7 @@ class ChatService:
         input_ms = output_ms = 0.0
         prompt_tokens = completion_tokens = 0
         stage: str | None = None
+        proposal: actions.Proposal | None = None
         content = ""
         masked = False
         signals = turn.risk_signals
@@ -197,8 +217,11 @@ class ChatService:
                 hits.extend(generated.hits)
                 tool_execs.extend(generated.tool_executions)
                 prompt_tokens, completion_tokens = generated.prompt_tokens, generated.completion_tokens
+                proposal = generated.proposal
                 if generated.blocked_stage:
                     stage = generated.blocked_stage
+                elif proposal is not None:
+                    content = proposal_message(proposal.preview)  # server text; no model output to inspect
                 else:
                     sanitized, _ = await self.pipeline.check_output(generated.content, snapshot)
                     output_ms = sanitized.output_ms
@@ -210,7 +233,7 @@ class ChatService:
         except tuple(ERRORS) as exc:
             status_code, code = ERRORS[type(exc)]
             await self._persist(turn, snapshot, "error", None, hits, tool_execs, input_ms, output_ms,
-                                f"오류: {code}", signals, None)  # fmt: skip
+                                f"오류: {code}", signals, None, None)  # fmt: skip
             raise ApiError(
                 status_code, code, {"Retry-After": RETRY_AFTER[code]} if code in RETRY_AFTER else None
             ) from exc
@@ -219,6 +242,12 @@ class ChatService:
             status, content = "blocked", REFUSALS[stage]
             summary = f"차단({stage}): " + ", ".join(h.rule_id for h in hits if h.action == "block")
             reply_for_context = None
+        elif proposal is not None:
+            status, summary, reply_for_context = (
+                "confirmation_required",
+                f"변경 제안 대기: {proposal.tool_name}",
+                content,
+            )
         else:
             status = "masked" if masked else "success"
             summary = (
@@ -228,38 +257,50 @@ class ChatService:
                 + ", ".join(sorted({h.rule_id for h in hits if h.action in ("mask", "escape")}))
             )
             reply_for_context = content
-        event_id = await self._persist(turn, snapshot, status, stage, hits, tool_execs, input_ms, output_ms,
-                                       summary, signals, reply_for_context)  # fmt: skip
+        event_id, action_row = await self._persist(
+            turn, snapshot, status, stage, hits, tool_execs, input_ms, output_ms, summary, signals,
+            reply_for_context, proposal,
+        )  # fmt: skip
+        action = None
+        if action_row is not None:
+            action = {
+                "action_id": str(action_row["id"]),
+                "expires_at": action_row["expires_at"].isoformat(),
+                "confirmation_url": f"{self.state.settings.shop_origin}/actions/{action_row['id']}",
+            }
         return ChatOutcome(
             status=status, content=content, stage=stage, hits=hits, ruleset_version=snapshot.version_id,
             session_id=turn.session_id, event_id=event_id, input_ms=input_ms, output_ms=output_ms,
             total_ms=elapsed_ms(turn.started), prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            action=action,
         )  # fmt: skip
 
     async def _persist(
         self, turn: ChatTurn, snapshot: RuleSnapshot, status: str, stage: str | None, hits: list[Hit],
         tool_execs: list[ToolExecution], input_ms: float, output_ms: float, summary: str, signals: dict | None,
-        reply: str | None,
-    ) -> uuid.UUID:  # fmt: skip
-        envelope = AuditEnvelope(
-            request_id=uuid.UUID(turn.request_id),
-            actor_id=turn.ctx.user_id,
-            session_id=turn.session_id,
-            source=turn.ctx.source,
-            api_path=turn.api_path,
-            model=self.state.settings.ollama_model,
-            status=status,
-            stage=stage,
-            ruleset_version=snapshot.version_id,
-            input_chars=sum(len(m.content) for m in turn.inspect),
-            output_chars=len(reply or ""),
-            input_ms=input_ms,
-            output_ms=output_ms,
-            total_ms=elapsed_ms(turn.started),
-            summary_redacted=summary[:2000],
-            rule_hits=tuple(merge_hits(hits)),
-            tool_executions=tuple(tool_execs[:6]),
-        )
+        reply: str | None, proposal: actions.Proposal | None,
+    ) -> tuple[uuid.UUID, dict | None]:  # fmt: skip
+        def envelope_for(executions: list[ToolExecution]) -> AuditEnvelope:
+            return AuditEnvelope(
+                request_id=uuid.UUID(turn.request_id),
+                actor_id=turn.ctx.user_id,
+                session_id=turn.session_id,
+                source=turn.ctx.source,
+                api_path=turn.api_path,
+                model=self.state.settings.ollama_model,
+                status=status,
+                stage=stage,
+                ruleset_version=snapshot.version_id,
+                input_chars=sum(len(m.content) for m in turn.inspect),
+                output_chars=len(reply or ""),
+                input_ms=input_ms,
+                output_ms=output_ms,
+                total_ms=elapsed_ms(turn.started),
+                summary_redacted=summary[:2000],
+                rule_hits=tuple(merge_hits(hits)),
+                tool_executions=tuple(executions[-6:]),
+            )
+
         context = list(turn.stored_context)
         if reply is not None:
             # Only completed, non-blocked turns enter the stored context; attack text is never kept.
@@ -268,6 +309,8 @@ class ChatService:
                     context.append({"role": "user", "content": redact_for_storage(m.content, snapshot)})
             context.append({"role": "assistant", "content": reply[:MAX_STORED_CHARS]})
         context = context[-MAX_CONTEXT_MESSAGES:]
+        action_row = None
+        executions = list(tool_execs)
         try:
             async with self.state.pools.chat.connection() as conn, conn.transaction():
                 await conn.execute(
@@ -275,11 +318,28 @@ class ChatService:
                     " last_activity_at = now() WHERE id = %s AND user_id = %s",
                     (Jsonb(context), Jsonb(signals or {}), turn.session_id, turn.ctx.user_id),
                 )
+                if proposal is not None:
+                    # Pending action, context and audit event commit together (DES-002 §6 변경 제안).
+                    action_row = await actions.insert_proposal(
+                        conn,
+                        proposal=proposal,
+                        user_id=turn.ctx.user_id,
+                        session_id=turn.session_id,
+                        request_id=turn.request_id,
+                        ruleset_version=snapshot.version_id,
+                        ttl_seconds=self.state.settings.action_ttl_seconds,
+                    )
+                    executions.append(
+                        ToolExecution(
+                            action_id=action_row["id"],
+                            tool_name=proposal.tool_name,
+                            outcome="proposed",
+                            target_id=proposal.cart_id,
+                            duration_ms=0,
+                        )
+                    )
+                envelope = envelope_for(executions)
                 await persist_event(conn, envelope)
         except Exception as exc:  # noqa: BLE001 - any audit failure hides the answer (DES-001 §5)
             raise ApiError(503, "AUDIT_UNAVAILABLE") from exc
-        return envelope.event_id
-
-
-def source_for(ctx: AuthContext) -> Source:
-    return ctx.source
+        return envelope.event_id, action_row

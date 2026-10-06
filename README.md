@@ -14,7 +14,7 @@
 | 입력·출력 가드레일 엔진·룰셋 게시 | 완료 (탐지율은 [DES-007 §8](docs/07_verification_operations_plan.md#8-문서-검증-기록) 참고) |
 | AI 판별(입력·Tool·출력)·관제 경보 | 완료 (held-out v2: 입력 100%, 출력 83%, 지연 p50 1.7초) |
 | 챗 파이프라인(native·SSE·AnythingLLM 호환·읽기 Tool) | 완료 (실모델 응답 20~55초, CPU) |
-| Tool·변경 승인 | 예정 |
+| Tool·변경 승인(ACTION-01~04)·쇼핑 조회(SHOP-01~06) | 완료 |
 | 감사 worker·스케줄러 | 예정 |
 | 고객 웹 / Streamlit 관제 / lab ON·OFF 비교 | 예정 |
 
@@ -26,7 +26,7 @@
 python scripts/gen_env.py                 # .env 생성 (임의 비밀번호, 커밋 금지)
 docker compose up -d --wait postgres      # PostgreSQL 17
 docker compose run --rm migrate           # 스키마 적용 + 로그인 역할 발급
-docker compose --profile test run --rm db-test   # DB·API 통합 테스트
+sh scripts/test.sh                        # 통합 테스트 (일회용 DB, 개발 DB와 분리)
 ```
 
 API 서버(현재 인증·health만 제공):

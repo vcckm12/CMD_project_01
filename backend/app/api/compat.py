@@ -128,6 +128,9 @@ async def chat_completions(request: Request, ctx: Annotated[AuthContext, Depends
         max_tokens=req.max_tokens,
     )
     outcome = await service.run(turn)
+    if outcome.action is not None:
+        # AnythingLLM cannot confirm (client tokens may only propose): point the customer to the shop web.
+        outcome.content += f"\n확인 링크: {outcome.action['confirmation_url']}"
     headers = {
         "X-Guardrail-Status": outcome.status,
         "X-Ruleset-Version": str(outcome.ruleset_version or ""),

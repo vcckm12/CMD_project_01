@@ -109,7 +109,7 @@ def _native_body(request: Request, ctx: AuthContext, outcome: ChatOutcome) -> di
             # Customers never see rule ids; staff verification chats do (DES-005 §3.2).
             "rule_ids": sorted({h.rule_id for h in outcome.hits}) if staff else [],
         },
-        "action": None,
+        "action": outcome.action,
         "error": {"code": "GUARDRAIL_BLOCKED", "message": FIXED_MESSAGES["GUARDRAIL_BLOCKED"]} if blocked else None,
         "timing": {"input_ms": outcome.input_ms, "output_ms": outcome.output_ms, "total_ms": outcome.total_ms},
     }

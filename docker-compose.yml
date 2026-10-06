@@ -1,5 +1,5 @@
 # Production stack (DES-001 §2). Only Nginx publishes ports; added in a later step.
-name: ${COMPOSE_PROJECT_NAME:-ag_prod}
+name: ${COMPOSE_PROJECT_NAME:-ag_prod}  # tests use ag_test (scripts/test.sh)
 
 services:
   postgres:

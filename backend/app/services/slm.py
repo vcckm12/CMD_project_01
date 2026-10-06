@@ -22,7 +22,8 @@ from app.guardrails.ruleset import RuleSnapshot
 from app.guardrails.types import Hit
 from app.security.auth import AuthContext
 from app.services.ollama import InferenceTimeout, InferenceUnavailable, OllamaClient
-from app.shop.tools import ObjectNotFound
+from app.shop import actions
+from app.shop.tools import CHANGE_TOOLS, ObjectNotFound
 
 MAX_TOOL_RESULT_CHARS = 8000
 # Conservative token estimate for Korean-heavy text (measured ~1.5 chars/token for qwen3; English ~5).
@@ -43,6 +44,7 @@ class SlmResult:
     completion_tokens: int = 0
     inference_ms: float = 0.0
     judge_ms: float = 0.0
+    proposal: actions.Proposal | None = None  # a change tool call ends the loop as a pending proposal
 
 
 class ContextOverflow(Exception):
@@ -142,6 +144,11 @@ class SLMService:
             if not budget.next_round():
                 return block("execution", _hit(snapshot, "RULE_TOOL_BUDGET", "execution"))
             messages.append({"role": "assistant", "content": reply.message.get("content") or "", "tool_calls": calls})
+            change_calls = sum(
+                1 for c in calls if isinstance(c, dict) and (c.get("function") or {}).get("name") in CHANGE_TOOLS
+            )
+            if change_calls > 1:  # at most one pending proposal per request (DES-005 §5)
+                return block("execution", _hit(snapshot, "RULE_TOOL_BUDGET", "execution"))
             for call in calls:
                 if not budget.next_call():
                     return block("execution", _hit(snapshot, "RULE_TOOL_BUDGET", "execution"))
@@ -154,6 +161,25 @@ class SLMService:
                     )
                     return block("execution", _hit(snapshot, decision.rule_id, "execution"))
                 started = time.perf_counter()
+                if decision.spec.requires_confirmation:
+                    try:
+                        async with self.pool.connection() as conn:
+                            proposal = await actions.build_proposal(
+                                conn, ctx.user_id, decision.spec.name, decision.arguments.model_dump(mode="json")
+                            )
+                    except actions.ActionInvalid as exc:
+                        # Tell the model why (fixed reason code) so it can explain; nothing was proposed.
+                        result.tool_executions.append(
+                            ToolExecution(tool_name=decision.spec.name, outcome="denied", duration_ms=_ms(started))
+                        )
+                        messages.append(
+                            {"role": "tool", "tool_name": decision.spec.name,
+                             "content": json.dumps({"error": exc.reason})}
+                        )  # fmt: skip
+                        continue
+                    result.proposal = proposal
+                    result.hits.append(_hit(snapshot, "RULE_TOOL_CONFIRMATION_REQUIRED", "execution"))
+                    return result
                 try:
                     async with self.pool.connection() as conn:
                         data = await decision.spec.run(conn, ctx.user_id, decision.arguments)

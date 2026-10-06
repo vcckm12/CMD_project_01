@@ -15,7 +15,7 @@ from typing import Literal
 import regex
 
 from app.guardrails import lexicon as lx
-from app.guardrails.budget import Budget
+from app.guardrails.budget import Budget, scaled_budget_ms
 from app.guardrails.normalize import MAX_TOTAL_VARIANT_CHARS, ResourceLimit, Variant, build_variants, canonical
 from app.guardrails.ruleset import RuleSnapshot, passes_prefilter
 from app.guardrails.types import Hit, InspectionResult
@@ -44,14 +44,14 @@ class _Blocked(Exception):
 
 
 class InputGuardrailEngine:
-    def __init__(self, budget_ms: float = 50.0, per_call_ms: float = 2.0) -> None:
+    def __init__(self, budget_ms: float = 50.0, per_call_ms: float = 20.0) -> None:
         self.budget_ms = budget_ms
         self.per_call_ms = per_call_ms
 
     def inspect(
         self, messages: Sequence[InputMessage], risk_signals: Mapping | None, snapshot: RuleSnapshot
     ) -> InspectionResult:
-        budget = Budget(self.budget_ms, self.per_call_ms)
+        budget = Budget(scaled_budget_ms(self.budget_ms, sum(len(m.content) for m in messages)), self.per_call_ms)
         run = _Run(snapshot, budget, _prior_turns(risk_signals))
         try:
             run.check_limits(messages)

@@ -35,6 +35,24 @@ class NoArgs(_Args):
     pass
 
 
+_UUID = Annotated[
+    str, StringConstraints(pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+]
+
+
+class SetCartItemArgs(_Args):
+    product_id: _UUID
+    quantity: Annotated[StrictInt, Field(ge=1, le=99)]
+
+
+class ProductArgs(_Args):
+    product_id: _UUID
+
+
+class ApplyCouponArgs(_Args):
+    user_coupon_id: _UUID
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
@@ -103,7 +121,25 @@ READ_TOOLS: tuple[ToolSpec, ...] = (
              NoArgs, "shop:read", _list_coupons),
 )  # fmt: skip
 
-REGISTRY: dict[str, ToolSpec] = {t.name: t for t in READ_TOOLS}
+
+async def _not_executable(conn, user_id, args):
+    raise RuntimeError("change tools only create proposals; they execute through ACTION-03")
+
+
+# Change tools never run inside the chat: they become a pending proposal that the customer confirms.
+CHANGE_TOOL_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec("set_cart_item", "Propose setting a product's quantity (1-99) in the customer's cart. The customer must "
+             "confirm before anything changes.", SetCartItemArgs, "actions:propose", _not_executable, True),
+    ToolSpec("remove_cart_item", "Propose removing a product from the customer's cart (needs confirmation).",
+             ProductArgs, "actions:propose", _not_executable, True),
+    ToolSpec("apply_coupon", "Propose applying one of the customer's coupons (user_coupon_id from list_coupons) to "
+             "the cart (needs confirmation).", ApplyCouponArgs, "actions:propose", _not_executable, True),
+    ToolSpec("remove_coupon", "Propose removing the applied coupon from the cart (needs confirmation).",
+             NoArgs, "actions:propose", _not_executable, True),
+)  # fmt: skip
+
+CHANGE_TOOLS: dict[str, ToolSpec] = {t.name: t for t in CHANGE_TOOL_SPECS}
+REGISTRY: dict[str, ToolSpec] = {t.name: t for t in (*READ_TOOLS, *CHANGE_TOOL_SPECS)}
 
 
 def parse_args(spec: ToolSpec, raw: Any) -> _Args:

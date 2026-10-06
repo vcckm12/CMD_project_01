@@ -34,19 +34,29 @@ FIXED_MESSAGES: dict[str, str] = {
     "SESSION_BUSY": "이 대화에서 이전 요청을 처리하고 있습니다. 완료 후 다시 시도해 주세요.",
     "UNSUPPORTED_MODEL": "지원하지 않는 모델입니다.",
     "PROMPT_TOO_LONG": "질문이 너무 깁니다. 나누어서 보내 주세요.",
+    "ACTION_INVALID": "요청한 변경을 적용할 수 없습니다.",
+    "ACTION_STALE": "장바구니나 상품 정보가 바뀌었습니다. 내용을 다시 확인해 주세요.",
+    "ACTION_TERMINAL": "이미 처리가 끝난 요청입니다.",
+    "ACTION_EXPIRED": "확인 시간이 지났습니다. 다시 요청해 주세요.",
+    "IDEMPOTENCY_CONFLICT": "다른 요청에 이미 사용된 확인 키입니다.",
     "INTERNAL_ERROR": "일시적인 오류가 발생했습니다.",
 }
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str, headers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, status: int, code: str, headers: dict[str, str] | None = None, reason: str | None = None
+    ) -> None:
         super().__init__(code)
         self.status = status
         self.code = code
         self.headers = headers or {}
+        self.reason = reason  # fixed machine-readable detail (e.g. MIN_SUBTOTAL_NOT_MET), never free text
 
 
-def error_response(request: Request, status: int, code: str, headers: dict[str, str] | None = None) -> JSONResponse:
+def error_response(
+    request: Request, status: int, code: str, headers: dict[str, str] | None = None, reason: str | None = None
+) -> JSONResponse:
     request_id = getattr(request.state, "request_id", None)
     if request.url.path.startswith("/v1/"):
         # OpenAI-compatible error shape for AnythingLLM (DES-005 §4.2).
@@ -54,13 +64,15 @@ def error_response(request: Request, status: int, code: str, headers: dict[str, 
         body = {"error": {"message": FIXED_MESSAGES[code], "type": kind, "param": None, "code": code}}
     else:
         body = {"request_id": request_id, "error": {"code": code, "message": FIXED_MESSAGES[code]}}
+        if reason:
+            body["error"]["reason"] = reason
     return JSONResponse(body, status_code=status, headers=headers)
 
 
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def _api_error(request: Request, exc: ApiError) -> JSONResponse:
-        return error_response(request, exc.status, exc.code, exc.headers)
+        return error_response(request, exc.status, exc.code, exc.headers, exc.reason)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:

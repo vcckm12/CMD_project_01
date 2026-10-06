@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.api import auth, chat, compat, health
+from app.api import actions, auth, chat, compat, health, shop
 from app.chat.service import UserBudget
 from app.config import Settings, get_settings
 from app.context import RequestContextMiddleware
@@ -111,6 +111,8 @@ def create_app(settings: Settings | None = None, *, ollama_transport=None) -> Fa
     app.include_router(auth.router)
     app.include_router(chat.router)
     app.include_router(compat.router)
+    app.include_router(shop.router)
+    app.include_router(actions.router)
     return app
 
 

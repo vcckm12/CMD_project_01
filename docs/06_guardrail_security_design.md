@@ -43,7 +43,7 @@
 
 RuleHit은 rule_id·category·stage·action·count만 포함한다. 일치 원문·복원된 공격 문자열·비밀값은 반환·저장하지 않는다. actor·user_id는 AuthContext에서만 취득한다. status는 [공통 상태](README.md#5-공통-식별자상태기본값)를 따르고 치명적 출력 block이 부분 mask보다 우선한다.
 
-정규식은 Python의 timeout 지원 `regex` 엔진을 제안한다. 패턴은 아래 Python 호환 문법이며 flags는 ''/i/is 중 하나다. 요청 중 compile하지 않고 게시 검증 때 compile한다. 단일 매칭 call timeout은 2ms, 입력·출력 검사 전체 hard budget은 각 50ms다(D-16). 검사 예산 초과는 503 GUARDRAIL_TIMEOUT으로 실패 처리하고 모델/Tool 결과를 보내지 않는다. P95 목표(입력 10ms, 입력+실행+출력 30ms)는 hard budget과 별개인 성능 목표이며 실제 CPU 환경에서 검증해야 한다. 검사는 event loop를 막지 않도록 전용 thread pool에서 실행한다.
+정규식은 Python의 timeout 지원 `regex` 엔진을 제안한다. 패턴은 아래 Python 호환 문법이며 flags는 ''/i/is 중 하나다. 요청 중 compile하지 않고 게시 검증 때 compile한다. 단일 매칭 call timeout은 wall-clock 20ms(ReDoS 안전망), 입력·출력 검사 hard budget은 각 8,000자당 50ms의 검사 스레드 CPU 시간이다(D-16, D-28 보정). 검사 예산 초과는 503 GUARDRAIL_TIMEOUT으로 실패 처리하고 모델/Tool 결과를 보내지 않는다. P95 목표(입력 10ms, 입력+실행+출력 30ms)는 hard budget과 별개인 성능 목표이며 실제 CPU 환경에서 검증해야 한다. 검사는 event loop를 막지 않도록 전용 thread pool에서 실행한다.
 
 ## 3. 입력 가드레일 파이프라인
 

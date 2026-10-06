@@ -1,4 +1,11 @@
-"""Time budget for one inspection. Every regex call gets min(per-call timeout, remaining budget)."""
+"""Time budget for one inspection.
+
+The stage budget is counted in CPU time of the inspecting thread (time.thread_time), so waiting for the
+GIL or for other requests does not count as inspection time; a 5 ms thread switch interval made
+wall-clock budgets fail long benign inputs at random. Each regex call additionally has a wall-clock
+timeout (default 20 ms) as the ReDoS safety net: catastrophic backtracking burns CPU and is cut off by
+either limit.
+"""
 
 from __future__ import annotations
 
@@ -13,19 +20,26 @@ from app.guardrails.types import GuardrailTimeout
 # The overlap must exceed the longest match any rule can produce (bounded repeats keep it < 512).
 WINDOW = 2000
 OVERLAP = 512
+# The stage budget (D-16) covers 8,000 characters; longer inputs (full compat histories, long answers)
+# get proportionally more so legitimate long text is not refused.
+BUDGET_UNIT_CHARS = 8000
+
+
+def scaled_budget_ms(base_ms: float, chars: int) -> float:
+    return base_ms * max(1.0, chars / BUDGET_UNIT_CHARS)
 
 
 class Budget:
-    def __init__(self, total_ms: float, per_call_ms: float = 2.0) -> None:
+    def __init__(self, total_ms: float, per_call_ms: float = 20.0) -> None:
         self.started = time.perf_counter()
-        self.deadline = self.started + total_ms / 1000
+        self.cpu_started = time.thread_time()
+        self.cpu_budget = total_ms / 1000
         self.per_call = per_call_ms / 1000
 
     def _timeout(self) -> float:
-        remaining = self.deadline - time.perf_counter()
-        if remaining <= 0:
+        if time.thread_time() - self.cpu_started >= self.cpu_budget:
             raise GuardrailTimeout
-        return min(self.per_call, remaining)
+        return self.per_call
 
     def elapsed_ms(self) -> float:
         return round((time.perf_counter() - self.started) * 1000, 3)

@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     ollama_num_predict: int = 512
     chat_deadline_seconds: float = 240.0
     user_requests_per_minute: int = 30
+    action_ttl_seconds: int = 300
 
     # LLM safety judge (D-25) and alert fingerprints (D-26). The key only has to stay stable and secret;
     # it makes stored input fingerprints irreversible by dictionary guessing.

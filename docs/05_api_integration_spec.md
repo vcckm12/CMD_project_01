@@ -54,7 +54,7 @@ operator/admin 검증 챗에는 합성 컨텍스트만 제공하고 실제 고�
 | 409 | SESSION_BUSY, ACTION_STALE, ACTION_TERMINAL, IDEMPOTENCY_CONFLICT, EMAIL_UNAVAILABLE | 동시성·terminal 충돌, 회원가입 이메일 중복 |
 | 410 | ACTION_EXPIRED | 만료한 본인 승인 |
 | 413 | BODY_TOO_LARGE | body 262,144 bytes 초과 |
-| 422 | VALIDATION_ERROR, PROMPT_TOO_LONG | 필드·길이·인자·미지원 role 오류, 질문이 모델 문맥 한도를 넘음(D-27) |
+| 422 | VALIDATION_ERROR, PROMPT_TOO_LONG, ACTION_INVALID | 필드·길이·인자·미지원 role 오류, 질문이 모델 문맥 한도를 넘음(D-27) |
 | 429 | RATE_LIMITED | Retry-After 정수 초 제공 |
 | 502 / 504 | INFERENCE_UNAVAILABLE / INFERENCE_TIMEOUT | 모델 연결 / deadline 실패 |
 | 503 | AUDIT_UNAVAILABLE, RULESET_UNAVAILABLE, SERVICE_NOT_READY, GUARDRAIL_TIMEOUT, GUARDRAIL_UNAVAILABLE | 안전한 처리 기반 미준비·검사 예산 초과·AI 판별 실패(Retry-After 포함, "잠시 후 다시 시도") |
@@ -107,7 +107,7 @@ Tool 목록 API는 실행 endpoint가 아니다. 모델이 제안한 함수는 �
 | ACTION-03 | POST /api/v1/actions/{id}/confirm | customer JWT, Idempotency-Key 필수, body {} | 200 state=executed·result, 재확인 시 저장 결과 |
 | ACTION-04 | POST /api/v1/actions/{id}/cancel | customer JWT, body {} | 200 state=cancelled, 이미 cancelled면 같은 결과 |
 
-ACTION-01 입력은 `tool_name`, `arguments`, `base_version`, 선택 `session_id`다. target_id·user_id·ruleset_version·hash·만료는 서버가 정한다. tool_name은 `set_cart_item`, `remove_cart_item`, `apply_coupon`, `remove_coupon` 중 하나이며 [DES-006 Tool 표](06_guardrail_security_design.md#5-tool-실행-권한과-변경-확인)의 strict 인자를 적용한다.
+ACTION-01 입력은 `tool_name`, `arguments`, `base_version`, 선택 `session_id`다. 적용할 수 없는 제안은 422 `ACTION_INVALID`와 고정 `error.reason`(PRODUCT_UNAVAILABLE, OUT_OF_STOCK, NOT_IN_CART, COUPON_NOT_AVAILABLE, MIN_SUBTOTAL_NOT_MET, NO_COUPON_APPLIED, INVALID_ARGUMENTS, UNKNOWN_TOOL)으로 응답한다. 다른 사용자의 쿠폰과 없는 쿠폰은 같은 COUPON_NOT_AVAILABLE이다. 챗에서 모델이 변경 Tool을 부르면 같은 검증을 거쳐 pending 1건과 서버 작성 확인 문구로 끝나고, 사유가 있으면 고정 reason을 Tool 결과로 모델에 돌려준다. target_id·user_id·ruleset_version·hash·만료는 서버가 정한다. tool_name은 `set_cart_item`, `remove_cart_item`, `apply_coupon`, `remove_coupon` 중 하나이며 [DES-006 Tool 표](06_guardrail_security_design.md#5-tool-실행-권한과-변경-확인)의 strict 인자를 적용한다.
 
 ```json
 {

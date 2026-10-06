@@ -244,7 +244,8 @@ def test_audit_failure_hides_answer(client, customer, fake_model, monkeypatch):
 
 def test_context_overflow_rejected_before_model(client, customer, fake_model):
     r = chat(client, customer, "가" * 7999)
-    assert r.status_code == 422 and r.json()["error"]["code"] == "PROMPT_TOO_LONG" and fake_model.chat_calls == []
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "PROMPT_TOO_LONG" and fake_model.chat_calls == []
 
 
 def test_truncated_context_answer_is_discarded(client, customer, fake_model):
@@ -321,7 +322,17 @@ def test_staff_verification_chat_has_no_tools_and_sees_rule_ids(client, fake_mod
 
 def test_tools_listing(client, customer):
     names = {t["name"] for t in client.get("/api/v1/tools", headers=bearer(customer["token"])).json()["data"]["items"]}
-    assert names == {"search_products", "list_orders", "get_order", "get_cart", "list_coupons"}
+    assert names == {
+        "search_products",
+        "list_orders",
+        "get_order",
+        "get_cart",
+        "list_coupons",
+        "set_cart_item",
+        "remove_cart_item",
+        "apply_coupon",
+        "remove_coupon",
+    }
 
 
 # ------------------------------------------------------------------ OpenAI-compatible

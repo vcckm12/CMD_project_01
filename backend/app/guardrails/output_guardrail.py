@@ -10,7 +10,7 @@ from __future__ import annotations
 import regex
 
 from app.guardrails import pii
-from app.guardrails.budget import Budget
+from app.guardrails.budget import Budget, scaled_budget_ms
 from app.guardrails.markup import sanitize_markup
 from app.guardrails.normalize import canonical, decoded_variants, strip_separators
 from app.guardrails.ruleset import RuleSnapshot
@@ -58,7 +58,7 @@ class OutputGuardrailEngine:
         secret_fingerprints: frozenset[str] = frozenset(),
         protected_texts: tuple[str, ...] = (),
         budget_ms: float = 50.0,
-        per_call_ms: float = 2.0,
+        per_call_ms: float = 20.0,
     ) -> None:
         self.fingerprints = secret_fingerprints
         self.prompt_windows = _prompt_windows(protected_texts)
@@ -66,7 +66,7 @@ class OutputGuardrailEngine:
         self.per_call_ms = per_call_ms
 
     def sanitize(self, raw: str, snapshot: RuleSnapshot) -> SanitizationResult:
-        budget = Budget(self.budget_ms, self.per_call_ms)
+        budget = Budget(scaled_budget_ms(self.budget_ms, len(raw)), self.per_call_ms)
         if len(raw) > snapshot.limit("max_output_chars"):
             raise OutputTooLong
         hits: dict[str, Hit] = {}
