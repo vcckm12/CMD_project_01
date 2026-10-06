@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,7 +26,7 @@ from app.guardrails.rule_cache import RuleCache
 from app.security.auth import LoginRateLimiter
 from app.security.tokens import JwtSigner
 from app.services.ollama import OllamaClient
-from app.services.prompts import PROTECTED_TEXTS
+from app.services.prompts import LAB_BAIT_SECRETS, LAB_SYSTEM_PROMPT, PROTECTED_TEXTS
 from app.services.slm import SLMService
 
 
@@ -88,10 +89,15 @@ def create_app(settings: Settings | None = None, *, ollama_transport=None) -> Fa
     )
     app.state.login_limiter = LoginRateLimiter(settings.login_failure_limit, settings.login_failure_window_seconds)
     app.state.rule_cache = RuleCache()
+    lab = settings.app_env == "lab"
+    # Lab only: the synthetic bait is a registered secret, so the ON path can be shown blocking it.
+    lab_fingerprints = (
+        frozenset(hashlib.sha256(s.encode()).hexdigest() for s in LAB_BAIT_SECRETS) if lab else frozenset()
+    )
     app.state.input_engine = InputGuardrailEngine(budget_ms=settings.guardrail_budget_ms)
     app.state.output_engine = OutputGuardrailEngine(
-        secret_fingerprints=load_fingerprints(settings.secret_fingerprints_file),
-        protected_texts=PROTECTED_TEXTS,
+        secret_fingerprints=load_fingerprints(settings.secret_fingerprints_file) | lab_fingerprints,
+        protected_texts=PROTECTED_TEXTS + ((LAB_SYSTEM_PROMPT,) if lab else ()),
         budget_ms=settings.guardrail_budget_ms,
     )
     app.state.ollama = OllamaClient(
@@ -120,6 +126,13 @@ def create_app(settings: Settings | None = None, *, ollama_transport=None) -> Fa
     app.include_router(actions.router)
     app.include_router(ops.router)
     app.include_router(rulesets.router)
+    if lab:
+        # The ON/OFF comparison exists only in the separate lab stack (D-21); production never registers it.
+        from app.api import lab as lab_api
+        from app.lab.runner import ABRunner
+
+        app.state.lab = ABRunner(app.state.ollama, app.state.guardrails, app.state.rule_cache)
+        app.include_router(lab_api.router)
     return app
 
 

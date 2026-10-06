@@ -357,6 +357,83 @@ def test_chat() -> None:
                        f"total {t['total_ms']:.0f} ms · request {body['request_id']}")  # fmt: skip
 
 
+# ----------------------------------------------------------------- SCR-L01 lab A/B (lab only)
+
+LAYERS = {"input_rules": "입력 규칙", "input_judge": "입력 AI 판별", "output_rules": "출력 규칙",
+          "output_judge": "출력 AI 판별", "none": "통과", "error": "오류"}  # fmt: skip
+
+
+def lab_available() -> bool:
+    if "lab_available" not in st.session_state:
+        try:
+            client().get("/api/v1/lab/status")
+            st.session_state.lab_available = True
+        except Exception:  # noqa: BLE001 - production returns 404: no lab menu
+            st.session_state.lab_available = False
+    return st.session_state.lab_available
+
+
+def exposed(e: dict) -> str:
+    parts = [
+        name
+        for key, name in (("secret", "미끼 비밀"), ("pii", "합성 개인정보"), ("markup", "스크립트·외부 이미지"))
+        if e.get(key)
+    ]
+    return ", ".join(parts) if parts else "노출 없음"
+
+
+def lab_page() -> None:
+    st.error("🧪 LAB 환경 — 합성 데이터·미끼 비밀 전용입니다. 운영 환경이 아닙니다.")
+    st.header("가드레일 ON/OFF 비교")
+    st.caption(
+        "같은 문장을 실제 모델에 OFF(가드레일 없음)와 ON(규칙+AI 판별)으로 각각 보내고, "
+        "사용자에게 보이는 답변에서 미끼 비밀·합성 개인정보·스크립트 노출을 비교합니다. "
+        "인증·본인 데이터 조회 제한은 OFF에서도 유지됩니다."
+    )
+    with st.form("lab-run"):
+        c1, c2 = st.columns(2)
+        dataset = c1.text_input("시험셋", "lab_ab_v1")
+        limit = c2.number_input("최대 사례 수 (0 = 전체)", min_value=0, max_value=200, value=0)
+        if st.form_submit_button("A/B 실행", type="primary"):
+            try:
+                body = {"dataset": dataset} | ({"limit": int(limit)} if limit else {})
+                st.session_state.lab_run = client().post("/api/v1/lab/ab-runs", body)["data"]["run_id"]
+            except Exception as err:  # noqa: BLE001
+                fail(err)
+    runs = client().get("/api/v1/lab/status")["runs"]
+    if not runs:
+        st.info("아직 실행한 비교가 없습니다.")
+        return
+    ids = [r["run_id"] for r in runs]
+    current = st.session_state.get("lab_run", ids[-1])
+    chosen = st.selectbox("실행", ids, index=ids.index(current) if current in ids else len(ids) - 1)
+
+    @st.fragment(run_every=5)
+    def run_view() -> None:
+        run = client().get(f"/api/v1/lab/ab-runs/{chosen}")
+        st.progress(run["done"] / max(run["total"], 1), text=f"{run['state']} · {run['done']}/{run['total']}")
+        s = run["summary"]
+        cols = st.columns(4)
+        cols[0].metric("OFF 노출 (공격)", f"{s['off_exposed']}/{s['attacks']}")
+        cols[1].metric("ON 노출 (공격)", f"{s['on_exposed']}/{s['attacks']}")
+        cols[2].metric("ON 차단·마스킹", s["on_blocked_or_masked"])
+        cols[3].metric("정상 질문 오차단 (ON)", f"{s['benign_blocked_on']}/{s['benign']}")
+        st.bar_chart(pd.Series({LAYERS[k]: v for k, v in s["stopped_by"].items()}, name="막은 계층"))
+        rows = [{"사례": r["case_id"], "분류": r["category"], "구분": r["label"], "OFF 결과": exposed(r["off_exposure"]),
+                 "ON 결과": f"{r['on_status']}" + (f"/{r['on_stage']}" if r["on_stage"] else ""),
+                 "ON 노출": exposed(r["on_exposure"]), "막은 계층": LAYERS.get(r["stopped_by"], r["stopped_by"]),
+                 "rule_ids": ", ".join(r["on_rule_ids"]), "OFF ms": r["off_ms"], "ON ms": r["on_ms"]}
+                for r in run["results"]]  # fmt: skip
+        if rows:
+            frame = pd.DataFrame(rows)
+            st.dataframe(frame, hide_index=True, use_container_width=True)
+            st.download_button("CSV 다운로드", frame.to_csv(index=False).encode("utf-8-sig"),
+                               file_name=f"lab-ab-{chosen[:8]}.csv", mime="text/csv")  # fmt: skip
+        st.caption("OFF 응답 원문은 화면에 표시하지 않고 노출 판정만 보여 줍니다. LAB 결과는 운영 탐지율이 아닙니다.")
+
+    run_view()
+
+
 # ------------------------------------------------------------------------------ main
 
 PAGES = {"대시보드": dashboard, "감사 상세": event_detail, "경보": alerts_page, "규칙·정책": rules_page,
@@ -368,6 +445,8 @@ else:
     with st.sidebar:
         st.write(f"**{client().user['email']}** ({client().user['role']})")
         st.success("🛡️ 보안 보호 활성")
+        if client().user["role"] == "admin" and lab_available():
+            PAGES["LAB ON/OFF 비교"] = lab_page
         page = st.radio("메뉴", list(PAGES), label_visibility="collapsed")
         if st.button("모든 기기 로그아웃"):
             client().logout()

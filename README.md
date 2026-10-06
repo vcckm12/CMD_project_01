@@ -18,7 +18,7 @@
 | 감사 worker·스케줄러 | 완료 |
 | Nginx·TLS·고객 웹 | 완료 (브라우저 E2E 통과) |
 | 관제 API·Streamlit(대시보드·감사·경보·룰 게시·PDF·검증 챗) | 완료 (브라우저 E2E 통과) |
-| lab ON·OFF 비교 | 예정 |
+| lab ON·OFF 비교 (분리 환경, A/B 러너, 관제 비교 화면) | 완료 |
 
 ## 로컬 실행 (현재 단계: DB)
 
@@ -41,6 +41,14 @@ docker compose exec api python -m app.cli.create_user --email admin@example.inte
 ```
 
 JWT 서명 키 `secrets/jwt_private.pem`은 커밋하지 않습니다.
+
+ON/OFF 비교용 lab 환경(운영과 분리, 합성 데이터·미끼 비밀만 사용, 8443 포트):
+
+```bash
+LAB_ADMIN_PASSWORD='12자 이상 비밀번호' sh scripts/lab_up.sh
+# https://ops.example.internal:8443 → 관리자 로그인 → "LAB ON/OFF 비교" 메뉴
+docker compose --env-file .env.lab down      # 종료 (데이터 유지, 삭제는 down -v)
+```
 
 HTTPS 진입점 (내부망 1단계, D-23):
 

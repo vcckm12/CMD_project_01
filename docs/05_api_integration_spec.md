@@ -140,7 +140,8 @@ preview는 모델이 쓴 문장 대신 서버가 조회한 상품명·변경 전
 | HEALTH-02 | GET /api/v1/health/ready | 내부 모니터·operator/admin | 200 ready 또는 503, 구성요소별 정상 여부 |
 | LAB-01 | POST /api/v1/lab/ab-runs | lab admin, ops 채널, APP_ENV=lab만 등록, dataset_id·categories | 202 run_id |
 | LAB-02 | GET /api/v1/lab/ab-runs/{id} | lab admin | 진행률·사례별 OFF/ON status·노출 여부·막은 계층·rule_ids |
-| LAB-03 | GET /api/v1/lab/ab-runs/{id}/report | lab admin, format=pdf | application/pdf, no-store |
+| LAB-03 | (구현 보류) | — | 1차 구현은 LAB-02 결과를 Streamlit에서 CSV로 내려받음. PDF는 고도화 단계 |
+| LAB-00 | GET /api/v1/lab/status | lab admin | 실행 목록과 진행률(lab에서만 존재, 관제 메뉴 노출 판단에 사용) |
 
 PUT ruleset은 rule_id·stage·category·kind·pattern·flags·action·marker·priority와 policy allowlist만 허용한다. DB에 없는 필드, 길이 제한 완화, 강제 가드레일 해제를 거부한다. 게시 재인증 비밀번호는 모델·DB payload·로그에 저장하지 않는다. 변경 충돌은 409 RULESET_CONFLICT, compile·검증 실패는 422 RULESET_VALIDATION_FAILED이고 고정 failure code 목록을 `error.details`로 준다. 게시·롤백의 비밀번호 재확인 실패는 403 REAUTH_FAILED다. 게시가 성공하면 같은 프로세스의 snapshot을 즉시 교체한다. AUDIT·RULE·ALERT API는 ops 채널이 아니면 404, 고객 토큰이면 403이다. 이벤트 목록 cursor는 (occurred_at, event_id) keyset을 HMAC으로 서명한 값이다. 게시·롤백도 outbox와 함께 transaction으로 기록한다.
 

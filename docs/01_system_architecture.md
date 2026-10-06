@@ -214,4 +214,6 @@ JWT·refresh·client token·비밀번호·실제 기밀은 모델 입력과 감�
 
 OFF는 입력·실행·출력 **가드레일 엔진**만 건너뛴다. 인증·DAO의 user_id 조건·변경 승인은 OFF에서도 유지된다. 이 계층들은 가드레일이 아니라 기본 권한 통제이기 때문이다. 따라서 A/B 리포트는 각 공격이 어느 계층에서 막혔는지(가드레일 / 권한 통제 / 미방어)를 구분해 표시한다. A/B 러너는 고정 공격·정상 시험셋을 같은 모델 설정으로 ON·OFF 각각 실행한다. 사례별로 응답 status, 미끼 비밀·합성 PII의 노출 여부, 적중 rule_id를 비교한다(T-26).
 
+**구현(2026-10-06):** lab은 `.env.lab`(COMPOSE_PROJECT_NAME=ag_lab, APP_ENV=lab, HTTPS_PORT=8443, 별도 JWT 키·DB 비밀번호)과 같은 compose 파일로 띄운다. `scripts/lab_up.sh`가 비밀 생성 → DB → migration → 관리자 → 룰셋 게시 → 나머지 서비스 순서로 실행한다. A/B 러너는 Tool을 쓰지 않는 질의로 OFF(가드레일·판별 없음)와 ON(규칙+판별)을 같은 lab system prompt로 실제 모델에 보낸다. 사용자에게 보일 텍스트에서 미끼 비밀·합성 연락처(구분자 제거·Base64 복호 포함)·실행 가능한 markup 노출을 결정적으로 판정한다. OFF 원문은 화면에 표시하지 않고 판정 결과만 보여 준다. 결과는 lab API 프로세스 메모리에만 보관하며 CSV로 내려받는다.
+
 lab의 OFF 경로는 `APP_ENV=lab`일 때만 코드에 등록한다. production 이미지에서 같은 설정을 넣으면 시작 단계에서 거부한다. lab 결과를 운영 탐지율로 보고하지 않으며, 측정 시점의 모델 digest·룰셋 버전·시험셋 hash를 함께 기록한다.
