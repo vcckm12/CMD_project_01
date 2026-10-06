@@ -127,20 +127,38 @@ def dashboard() -> None:
 def events_table(start: str, end: str, session: str | None, status: str | None) -> None:
     key = (start, end, session, status)
     if st.session_state.get("events_key") != key:
-        st.session_state.events_key, st.session_state.events, st.session_state.events_cursor = key, [], None
-        load_more = True
-    else:
-        load_more = False
-    if load_more or st.button("더 보기", disabled=st.session_state.events_cursor is None and bool(st.session_state.events)):
+        st.session_state.events_key, st.session_state.events_pages = key, 1
+    _events_list(start, end, session, status)
+
+
+@st.fragment(run_every=10)
+def _events_list(start: str, end: str, session: str | None, status: str | None) -> None:
+    def fetch(cursor: str | None) -> dict | None:
         try:
-            page = client().get("/api/v1/audit/events", **{"from": start, "to": end, "session_id": session,
-                                                           "status": status, "cursor": st.session_state.events_cursor,
-                                                           "limit": 50})  # fmt: skip
-            st.session_state.events += page["items"]
-            st.session_state.events_cursor = page["next_cursor"]
+            return client().get("/api/v1/audit/events", **{"from": start, "to": end, "session_id": session,
+                                                           "status": status, "cursor": cursor, "limit": 50})  # fmt: skip
         except Exception as err:  # noqa: BLE001
             fail(err)
-    rows = st.session_state.events
+            return None
+
+    c1, c2 = st.columns([1, 5])
+    if c1.button("새로고침"):
+        st.session_state.events_pages = 1
+    # The first page follows new events (every 10 s); paging past it pauses refresh until 새로고침.
+    if st.session_state.events_pages == 1:
+        page = fetch(None)
+        if page is not None:
+            st.session_state.events, st.session_state.events_cursor = page["items"], page["next_cursor"]
+        c2.caption("최신 50건 · 10초마다 자동 갱신")
+    else:
+        c2.caption("이전 이벤트를 보는 중이라 자동 갱신을 멈췄습니다. 최신 목록은 새로고침을 누르세요.")
+    if st.session_state.get("events_cursor") and st.button("더 보기"):
+        page = fetch(st.session_state.events_cursor)
+        if page is not None:
+            st.session_state.events += page["items"]
+            st.session_state.events_cursor = page["next_cursor"]
+            st.session_state.events_pages += 1
+    rows = st.session_state.get("events", [])
     if not rows:
         st.info("이 조건의 이벤트가 없습니다.")
         return
