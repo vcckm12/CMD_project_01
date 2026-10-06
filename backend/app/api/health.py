@@ -18,6 +18,8 @@ async def live() -> dict[str, str]:
 
 
 MODEL_CHECK_TTL_S = 30.0
+OUTBOX_MAX_PENDING = 10_000
+OUTBOX_MAX_AGE_S = 900
 
 
 async def _model_ok(request: Request) -> bool:
@@ -46,10 +48,18 @@ async def ready(request: Request) -> JSONResponse:
         "ruleset_consistent": cache.consistent,
     }
     checks["model"] = await _model_ok(request)
+    checks["outbox_backlog"] = False
     try:
         async with request.app.state.pools.auth.connection(timeout=2) as conn:
-            await conn.execute("SELECT 1")
+            row = await (
+                await conn.execute(
+                    "SELECT count(*) AS pending, coalesce(extract(epoch FROM now() - min(created_at)), 0) AS age"
+                    " FROM audit.outbox WHERE delivery_state = 'pending'"
+                )
+            ).fetchone()
         checks["database"] = True
+        # DES-007 §5: >10,000 pending or the oldest older than 15 minutes stops new chats and changes.
+        checks["outbox_backlog"] = row["pending"] <= OUTBOX_MAX_PENDING and row["age"] <= OUTBOX_MAX_AGE_S
     except Exception:  # noqa: BLE001 - readiness reports, never raises
         checks["database"] = False
     is_ready = all(checks.values())

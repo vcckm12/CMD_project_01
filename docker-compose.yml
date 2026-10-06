@@ -66,6 +66,37 @@ services:
     # `model` is the only network with a route out of Docker, used for the shared Ollama server (D-22).
     networks: [app, model]
 
+  audit-worker:
+    build: { context: ./backend, target: runtime }
+    command: ["python", "-m", "app.workers.audit_worker"]
+    restart: unless-stopped
+    environment:
+      AUDIT_WORKER_DATABASE_URL: postgresql://ag_audit_worker:${AG_AUDIT_WORKER_PASSWORD}@postgres:5432/${AG_DB_NAME:-ai_guardrail}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(time.time()-os.path.getmtime('/tmp/audit-worker.heartbeat') > 30)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [app]
+
+  scheduler:
+    build: { context: ./backend, target: runtime }
+    command: ["python", "-m", "app.workers.scheduler"]
+    restart: unless-stopped
+    environment:
+      MAINTENANCE_DATABASE_URL: postgresql://ag_maintenance:${AG_MAINTENANCE_PASSWORD}@postgres:5432/${AG_DB_NAME:-ai_guardrail}
+      RETENTION_DATABASE_URL: postgresql://ag_retention:${AG_RETENTION_PASSWORD}@postgres:5432/${AG_DB_NAME:-ai_guardrail}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(time.time()-os.path.getmtime('/tmp/scheduler.heartbeat') > 180)"]
+      interval: 30s
+      timeout: 5s
+      retries: 4
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [app]
+
   # Integration tests against the real database: docker compose --profile test run --rm db-test
   db-test:
     build: { context: ./backend, target: dev }
@@ -81,6 +112,9 @@ services:
       TEST_AUTH_PASSWORD: ${AG_AUTH_PASSWORD}
       TEST_CHAT_PASSWORD: ${AG_CHAT_PASSWORD}
       TEST_RULES_PASSWORD: ${AG_RULES_PASSWORD}
+      TEST_AUDIT_WORKER_PASSWORD: ${AG_AUDIT_WORKER_PASSWORD}
+      TEST_MAINTENANCE_PASSWORD: ${AG_MAINTENANCE_PASSWORD}
+      TEST_RETENTION_PASSWORD: ${AG_RETENTION_PASSWORD}
     depends_on:
       migrate: { condition: service_completed_successfully }
     networks: [app]

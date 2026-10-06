@@ -15,7 +15,7 @@
 | AI 판별(입력·Tool·출력)·관제 경보 | 완료 (held-out v2: 입력 100%, 출력 83%, 지연 p50 1.7초) |
 | 챗 파이프라인(native·SSE·AnythingLLM 호환·읽기 Tool) | 완료 (실모델 응답 20~55초, CPU) |
 | Tool·변경 승인(ACTION-01~04)·쇼핑 조회(SHOP-01~06) | 완료 |
-| 감사 worker·스케줄러 | 예정 |
+| 감사 worker·스케줄러 | 완료 |
 | 고객 웹 / Streamlit 관제 / lab ON·OFF 비교 | 예정 |
 
 ## 로컬 실행 (현재 단계: DB)
@@ -33,7 +33,7 @@ API 서버(현재 인증·health만 제공):
 
 ```bash
 python scripts/gen_jwt_key.py              # secrets/jwt_private.pem (cryptography 필요)
-docker compose up -d --wait api
+docker compose up -d --wait api audit-worker scheduler
 # 관리자 계정은 공개 API가 아닌 내부 명령으로만 생성 (비밀번호는 프롬프트로 입력)
 docker compose exec api python -m app.cli.create_user --email admin@example.internal --role admin
 ```
