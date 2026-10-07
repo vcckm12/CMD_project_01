@@ -447,6 +447,42 @@ def test_compat_contract_errors(client, client_token, body, status):
     assert r.status_code == status and set(r.json()["error"]) == {"message", "type", "param", "code"}
 
 
+def test_compat_accepts_common_client_defaults(client, client_token, fake_model):
+    # AnythingLLM / OpenAI SDK defaults: sampling hints are ignored, larger limits are clamped (D-38).
+    fake_model.replies = [{"content": "네"}]
+    body = {"model": "qwen3:8b", "messages": [{"role": "user", "content": "안녕"}], "max_tokens": 1024,
+            "temperature": 1.5, "top_p": 0.9, "frequency_penalty": 0, "presence_penalty": 0, "seed": 1,
+            "stop": ["\n\n"], "max_completion_tokens": 2048}  # fmt: skip
+    r = compat(client, client_token, body)
+    assert r.status_code == 200, r.text
+    options = fake_model.chat_calls[-1]["options"]
+    assert options["num_predict"] == 512 and options["temperature"] == 1.0
+    assert not {"top_p", "seed", "stop"} & set(options)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"logprobs": True},
+        {"tool_choice": "auto"},
+        {"stream_options": {"include_usage": "yes"}},
+        {"stream_options": {"other": 1}},
+    ],  # fmt: skip
+)
+def test_compat_still_refuses_unsupported_options(client, client_token, extra):
+    body = {"model": "qwen3:8b", "messages": [{"role": "user", "content": "x"}], **extra}
+    assert compat(client, client_token, body).status_code == 400
+
+
+def test_compat_stream_include_usage(client, client_token, fake_model):
+    fake_model.replies = [{"content": "스트림 답변"}]
+    body = {"model": "qwen3:8b", "stream": True, "stream_options": {"include_usage": True},
+            "messages": [{"role": "user", "content": "안녕"}]}  # fmt: skip
+    lines = [line for line in compat(client, client_token, body).text.split("\n\n") if line]
+    usage = json.loads(lines[-2][6:])
+    assert lines[-1] == "data: [DONE]" and usage["choices"] == [] and usage["usage"]["completion_tokens"] == 20
+
+
 def test_compat_stream(client, client_token, fake_model):
     fake_model.replies = [{"content": "스트림 답변"}]
     r = compat(

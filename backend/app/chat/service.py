@@ -85,6 +85,7 @@ class ChatTurn:
     # Filled while the turn runs (D-36): per-layer verdicts and model generation time for the audit event.
     layers: dict[str, tuple[str, float]] = field(default_factory=dict)
     model_ms: float = 0.0
+    blocked_tool: tuple[str, str] | None = None  # lab view only: the Tool result that was blocked
 
     async def report(self, stage: str, **data) -> None:
         if self.progress is not None:
@@ -248,6 +249,7 @@ class ChatService:
                     tool_execs.extend(generated.tool_executions)
                     merge_layers(turn.layers, generated.layers)
                     turn.model_ms += generated.inference_ms
+                    turn.blocked_tool = generated.blocked_tool
                     prompt_tokens += generated.prompt_tokens
                     completion_tokens += generated.completion_tokens
                     claimed = (
@@ -310,7 +312,10 @@ class ChatService:
         )  # fmt: skip
         lab_inputs = getattr(self.state, "lab_inputs", None)  # set only when APP_ENV=lab (synthetic data)
         if lab_inputs is not None:  # every lab chat input, so any lab event can be replayed OFF/ON (D-37)
-            lab_inputs.put(str(event_id), [(m.role, m.content) for m in turn.inspect])
+            messages = [(m.role, m.content) for m in turn.inspect]
+            if turn.blocked_tool is not None:  # indirect injection: show which Tool result was blocked
+                messages.append((f"tool:{turn.blocked_tool[0]}", turn.blocked_tool[1]))
+            lab_inputs.put(str(event_id), messages)
         action = None
         if action_row is not None:
             action = {

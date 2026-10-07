@@ -56,6 +56,8 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL}
       OLLAMA_MODEL_DIGEST: ${OLLAMA_MODEL_DIGEST}
       INPUT_FINGERPRINT_KEY: ${INPUT_FINGERPRINT_KEY:?set in .env}
+      # false on Docker Desktop: every client arrives as the bridge gateway (D-38)
+      LOGIN_LIMIT_BY_IP: ${LOGIN_LIMIT_BY_IP:-true}
     secrets: [jwt_private_key]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3)"]

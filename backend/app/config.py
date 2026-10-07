@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     max_body_bytes: int = 262_144
     login_failure_limit: int = 10
     login_failure_window_seconds: int = 900
+    # Docker Desktop (Windows/macOS) shows every client as the bridge gateway, so a per-IP counter would lock
+    # out everyone after one person's failures. Turn off there; keep on where real client IPs arrive (D-38).
+    login_limit_by_ip: bool = True
 
     ollama_base_url: str = "http://10.10.70.65:11434"
     ollama_model: str = "qwen3:8b"

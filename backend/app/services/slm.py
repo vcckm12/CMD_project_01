@@ -46,6 +46,7 @@ class SlmResult:
     inference_ms: float = 0.0
     judge_ms: float = 0.0
     layers: dict[str, tuple[str, float]] = field(default_factory=dict)  # tool_rules / tool_judge (D-36)
+    blocked_tool: tuple[str, str] | None = None  # (tool name, result) that was blocked; shown only in lab
     proposal: actions.Proposal | None = None  # a change tool call ends the loop as a pending proposal
 
 
@@ -207,6 +208,7 @@ class SLMService:
                 if not inspection.allowed:
                     result.hits.extend(inspection.hits)
                     result.blocked_stage = "input"
+                    result.blocked_tool = (decision.spec.name, content)
                     return result
                 messages.append({"role": "tool", "tool_name": decision.spec.name, "content": content})
 

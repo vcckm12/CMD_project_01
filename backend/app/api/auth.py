@@ -179,7 +179,9 @@ async def register(request: Request, body: Registration) -> JSONResponse:
 @router.post("/login")
 async def login(request: Request, body: Credentials) -> JSONResponse:
     limiter = request.app.state.login_limiter
-    keys = (f"ip:{client_ip(request)}", f"email:{body.email}")
+    keys = (f"email:{body.email}",)
+    if request.app.state.settings.login_limit_by_ip:
+        keys = (f"ip:{client_ip(request)}", *keys)
     limiter.check(*keys)
     async with request.app.state.pools.auth.connection() as conn:
         user = await (

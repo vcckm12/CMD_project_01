@@ -138,6 +138,29 @@ def test_login_rate_limit(client):
     assert r.status_code == 429 and r.headers["retry-after"]
 
 
+def test_login_limit_without_ip_key_spares_other_accounts(settings, fake_model):
+    # Docker Desktop hosts (LOGIN_LIMIT_BY_IP=false): one account's failures must not lock out the others.
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from app.config import Settings
+    from app.main import create_app
+
+    app = create_app(Settings(**{**settings.model_dump(), "login_limit_by_ip": False}),
+                     ollama_transport=httpx.MockTransport(fake_model.handler))  # fmt: skip
+    with TestClient(app, base_url="https://testserver") as c:
+        victim, _ = register_and_login(c)
+        other, _ = register_and_login(c)
+        for _ in range(12):
+            c.post("/api/v1/auth/login", json={"email": victim, "password": "wrong password 123"}, headers=SHOP)
+        assert (
+            c.post("/api/v1/auth/login", json={"email": other, "password": PASSWORD}, headers=SHOP).status_code == 200
+        )
+        assert (
+            c.post("/api/v1/auth/login", json={"email": victim, "password": PASSWORD}, headers=SHOP).status_code == 429
+        )
+
+
 # ------------------------------------------------------------- access tokens
 
 

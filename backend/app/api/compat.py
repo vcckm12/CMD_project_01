@@ -27,6 +27,10 @@ from app.services.prompts import CLIENT_CONTEXT_PREFIX, CUSTOMER_SYSTEM_PROMPT
 
 router = APIRouter(tags=["openai-compat"])
 ALLOWED_KEYS = {"model", "messages", "stream", "temperature", "max_tokens", "n", "user", "stream_options"}
+# Sampling hints that general clients (AnythingLLM, OpenAI SDKs) send by default. Type-checked, then ignored:
+# none of them can change the guardrail, the tools or the server system prompt (D-38).
+IGNORED_KEYS = {"top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "max_completion_tokens"}
+MAX_TOKENS = 512
 
 
 class CompatMessage(BaseModel):
@@ -40,11 +44,21 @@ class CompatRequest(BaseModel):
     model: str
     messages: list[CompatMessage] = Field(min_length=1, max_length=40)
     stream: bool = False
-    temperature: float = Field(default=0.2, ge=0, le=1)
-    max_tokens: int = Field(default=512, ge=1, le=512)
+    temperature: float = Field(default=0.2, ge=0, le=2)  # clamped to 1 below
+    max_tokens: int = Field(default=MAX_TOKENS, ge=1)  # clamped to MAX_TOKENS below
     n: Literal[1] = 1
     user: str | None = Field(default=None, max_length=128)  # never used for identity or sessions
     stream_options: dict | None = None
+    top_p: float | None = Field(default=None, ge=0, le=1)
+    frequency_penalty: float | None = Field(default=None, ge=-2, le=2)
+    presence_penalty: float | None = Field(default=None, ge=-2, le=2)
+    seed: int | None = None
+    stop: str | list[str] | None = None
+    max_completion_tokens: int | None = Field(default=None, ge=1)
+
+    @property
+    def include_usage(self) -> bool:
+        return bool((self.stream_options or {}).get("include_usage"))
 
 
 async def require_customer(request: Request) -> AuthContext:
@@ -67,14 +81,22 @@ async def _parse(request: Request) -> CompatRequest:
         raw = json.loads(await request.body())
     except ValueError as exc:
         raise ApiError(400, "INVALID_REQUEST") from exc
-    if not isinstance(raw, dict) or set(raw) - ALLOWED_KEYS:
-        raise ApiError(400, "INVALID_REQUEST")  # unsupported options (tools, tool_choice, n>1 …)
-    if raw.get("stream_options") not in (None, {"include_usage": False}):
+    if not isinstance(raw, dict) or set(raw) - ALLOWED_KEYS - IGNORED_KEYS:
+        raise ApiError(400, "INVALID_REQUEST")  # unsupported options (tools, tool_choice, logprobs, n>1 …)
+    options = raw.get("stream_options")
+    if options is not None and (
+        not isinstance(options, dict)
+        or set(options) - {"include_usage"}
+        or not isinstance(options.get("include_usage"), bool)
+    ):
         raise ApiError(400, "INVALID_REQUEST")
     try:
         req = CompatRequest.model_validate(raw)
     except ValidationError as exc:
         raise ApiError(422, "VALIDATION_ERROR") from exc
+    # Larger client defaults (AnythingLLM sends 1024) are served at the server limits instead of refused.
+    limit = min(req.max_completion_tokens or req.max_tokens, req.max_tokens, MAX_TOKENS)
+    req = req.model_copy(update={"max_tokens": limit, "temperature": min(req.temperature, 1.0)})
     if req.messages[-1].role != "user" or sum(len(m.content) for m in req.messages) > 32000:
         raise ApiError(422, "VALIDATION_ERROR")
     return req
@@ -140,7 +162,7 @@ async def chat_completions(request: Request, ctx: Annotated[AuthContext, Depends
     created = int(time.time())
     if req.stream:
         return StreamingResponse(
-            _sse(outcome, completion_id, created, req.model),
+            _sse(outcome, completion_id, created, req.model, req.include_usage),
             media_type="text/event-stream",
             headers={**headers, "Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
@@ -168,7 +190,9 @@ def _usage(outcome: ChatOutcome) -> dict:
     }
 
 
-async def _sse(outcome: ChatOutcome, completion_id: str, created: int, model: str) -> AsyncIterator[bytes]:
+async def _sse(
+    outcome: ChatOutcome, completion_id: str, created: int, model: str, include_usage: bool = False
+) -> AsyncIterator[bytes]:
     def chunk(delta: dict, finish: str | None) -> bytes:
         data = {"id": completion_id, "object": "chat.completion.chunk", "created": created, "model": model,
                 "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}  # fmt: skip
@@ -178,4 +202,8 @@ async def _sse(outcome: ChatOutcome, completion_id: str, created: int, model: st
     for i in range(0, len(outcome.content), 256):
         yield chunk({"content": outcome.content[i : i + 256]}, None)
     yield chunk({}, "stop")
+    if include_usage:  # OpenAI stream_options.include_usage: one final chunk with empty choices
+        usage = {"id": completion_id, "object": "chat.completion.chunk", "created": created, "model": model,
+                 "choices": [], "usage": _usage(outcome)}  # fmt: skip
+        yield f"data: {json.dumps(usage)}\n\n".encode()
     yield b"data: [DONE]\n\n"

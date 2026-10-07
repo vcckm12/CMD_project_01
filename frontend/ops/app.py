@@ -275,7 +275,8 @@ def lab_blocked_input(event_id: str, status: str) -> None:
         st.caption("보관된 원문이 없습니다. 채팅 요청이 아니거나 LAB API가 재시작되어 메모리에서 지워졌습니다.")
         return
     for m in messages:
-        st.caption(m["role"])
+        role = m["role"]
+        st.caption(f"🛑 차단된 도구 결과 ({role[5:]}) — 간접 주입" if role.startswith("tool:") else role)
         st.text(m["content"])  # plain text: never rendered as markdown/HTML
 
 
