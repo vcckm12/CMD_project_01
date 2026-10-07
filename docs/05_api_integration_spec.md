@@ -142,6 +142,7 @@ preview는 모델이 쓴 문장 대신 서버가 조회한 상품명·변경 전
 | LAB-02 | GET /api/v1/lab/ab-runs/{id} | lab admin | 진행률·사례별 OFF/ON status·노출 여부·막은 계층·rule_ids |
 | LAB-03 | (구현 보류) | — | 1차 구현은 LAB-02 결과를 Streamlit에서 CSV로 내려받음. PDF는 고도화 단계 |
 | LAB-04 | GET /api/v1/lab/inputs/{event_id} | lab admin, ops 채널, APP_ENV=lab만 등록 | 채팅 요청의 검사 대상 메시지 [{role, content}] (메모리 보관, 없으면 404, D-30·D-37) |
+| LAB-04 비고 | | | 도구 결과 단계에서 막힌 경우 role `tool:<도구명>`으로 차단된 도구 결과도 포함 |
 | LAB-05 | POST /api/v1/lab/compare | lab admin, `{event_id}` 또는 `{text}` 중 하나 | 202 run_id. LAB-02로 조회하면 input_text·off_text·on_text·on_layers 포함(D-37) |
 | LAB-00 | GET /api/v1/lab/status | lab admin | 실행 목록과 진행률(lab에서만 존재, 관제 메뉴 노출 판단에 사용) |
 

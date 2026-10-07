@@ -87,6 +87,8 @@
 | D-35 | 웹 채팅은 stream=true로 서버 처리 단계(입력 검사·답변 생성·도구 조회·출력 검사)를 실시간 표시한다. 단계 이벤트는 이름만 보내고 답변 본문은 모든 검사 후 전송 | CPU 추론 20~50초 대기 동안 멈춘 것처럼 보이던 문제, 가드레일 계층을 시연에서 보여 줌 |
 | D-36 | 입력·도구 결과·출력 각 단계에서 규칙과 AI 판별을 **둘 다** 실행하고 계층별 판정·처리 시간을 `audit.events.layers`(jsonb)·`model_ms`에 기록한다(원문 없음). 판정은 OR 그대로. 규칙이 이미 막은 경우 AI 판별은 기록용이며 실패해도 응답·경보에 영향 없음. 둘 다 막으면 rule_hits에 두 사유를 모두 남긴다. 감사 상세에 계층별 판정·시간 비중(%)과 최근 7일 계층별 기여(규칙만·AI만·둘 다 %)를 표시 | 사용자 요청: 차단 건마다 규칙·AI 기여 확인. 규칙 차단 건마다 판별 약 1~2초 추가(느려도 된다는 기존 결정) |
 | D-37 | LAB ON/OFF 비교를 단건 중심으로 바꾼다: LAB 채팅 이벤트의 event_id로 같은 입력을 재현하거나 공격 문장을 직접 입력해 OFF·ON 답변 원문을 나란히 표시(LAB-05). LAB은 모든 채팅 입력을 API 메모리에 보관(최대 500건, 재시작 시 삭제). 운영 이벤트는 원문이 없어 재현하지 않음. 시험셋 일괄 비교는 판정만 표시 | 사용자 결정(2026-10-06). LAB은 합성 데이터·미끼 비밀만 사용(D-21) |
+| D-38 | OpenAI 호환 API는 일반 클라이언트 기본값을 받아 준다: top_p·frequency/presence_penalty·seed·stop·max_completion_tokens는 형식만 검사하고 무시, max_tokens는 512·temperature는 1로 상한 적용, stream_options.include_usage 지원. tools·tool_choice·logprobs·n>1은 계속 거절. 로그인 실패 잠금은 `LOGIN_LIMIT_BY_IP`(기본 true)로 IP 키를 끌 수 있고 Docker Desktop 호스트(.env·.env.lab)는 false(이메일 기준만) | AnythingLLM 기본값(max_tokens 1024 등) 거절, Docker Desktop에서는 모든 접속자가 bridge gateway IP로 보여 한 사람의 실패가 전원을 잠금 |
+| D-39 | 개발·시연은 LAB(8443)만 사용하고 운영 관제(443)는 닫아 둔다. 개발 DB(ag_prod)는 2026-10-06 이후 시험 데이터를 지우고 재설치(관리자 1·합성 카탈로그·룰셋 v1). 저장소는 공개 유지 | 사용자 결정(2026-10-07) |
 | D-24 | 공개 GitHub 저장소 `vcckm12/CMD_project_01`의 `v2` 브랜치에서 신규 구성, 기존 MVP의 datasets·화면 디자인만 선별 이전. `.env`·키·인증서·`reference/PayloadsAllTheThings-master`는 커밋 금지 | 기존 MVP(무인증·원문 감사·mock fallback 답변)는 이 설계와 호환되지 않음 |
 
 ## 5. 공통 식별자·상태·기본값

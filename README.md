@@ -70,10 +70,22 @@ docker compose up -d --wait nginx
    - 고객 계정의 합성 주문·쿠폰: `docker compose --env-file .env.lab run --rm migrate python -m app.cli.seed --customer-email <이메일>`
 4. 인증서는 `gen_certs.py`로 다시 만들거나 도메인을 바꿀 때만 다시 배포합니다.
 
+### 브라우저 E2E (LAB 8443 기준)
+
+```bash
+docker build -t ag-e2e -f scripts/e2e.Dockerfile scripts      # Playwright 실행 이미지(최초 1회)
+HIP=$(docker run --rm ag-e2e getent hosts host.docker.internal | awk '{print $1}')
+docker run --rm -e EDGE_IP=$HIP -e SHOP_URL=https://shop.example.internal:8443 -v "$PWD/scripts:/s" ag-e2e python /s/e2e_web.py
+docker run --rm -e EDGE_IP=$HIP -e OPS_URL=https://ops.example.internal:8443 -e OPS_EMAIL=<lab 관리자> -e OPS_PASSWORD=<비밀번호>   -e EVENT_ID=<최근 차단 event_id> -v "$PWD/scripts:/s" ag-e2e python /s/e2e_ops.py
+docker run --rm -e EDGE_IP=$HIP -e OPS_EMAIL=<lab 관리자> -e OPS_PASSWORD=<비밀번호> -v "$PWD/scripts:/s" -v "$PWD/tmp:/out" ag-e2e python /s/e2e_lab.py
+```
+
+쇼핑 웹 E2E는 LAB DB에 이름에 markup이 든 XSS 시험 상품(SKU `E2E-XSS-001`)이 있어야 합니다. 점검 전용 LAB 관리자 비밀번호는 `secrets/lab/e2e_admin_password.txt`, 개발 DB 관리자(admin@example.internal) 비밀번호는 `secrets/prod_admin_password.txt`(둘 다 커밋 제외)에 있습니다.
+
 ### AnythingLLM 연결
 
 - 해당 PC 환경변수 `NODE_EXTRA_CA_CERTS=<ca.crt 경로>` 지정 후 AnythingLLM 완전 종료·재시작(없으면 `Connection error`)
-- LLM Provider는 **Generic OpenAI**(Ollama 아님): Base URL `https://shop.example.internal/v1`(LAB은 `:8443/v1`), API Key는 쇼핑몰에서 발급한 `gct_…` 토큰(환경별 발급), Model `qwen3:8b`, Token context window 8192, Max Tokens 512 이하
+- LLM Provider는 **Generic OpenAI**(Ollama 아님): Base URL `https://shop.example.internal:8443/v1`(LAB), API Key는 그 쇼핑몰에서 발급한 `gct_…` 토큰(환경별 발급), Model `qwen3:8b`, Token context window 8192, Max Tokens는 512보다 커도 서버가 512로 맞춤
 - 워크스페이스 ⚙ → Chat Settings → 채팅 모드 **Chat**(Agent/Automatic은 `tools`를 보내 400). Workspace LLM 설정이 따로 있으면 System default로
 - 답변은 CPU 모델이라 20~50초 걸릴 수 있습니다.
 
