@@ -64,7 +64,7 @@ async def measure(rows: list[dict]) -> list[dict]:
         started = time.perf_counter()
         result = {"id": r["id"], "label": r["label"], "category": r["category"],
                   "technique": r.get("technique", ""), "lang": r["lang"]}  # fmt: skip
-        for attempt in range(2):
+        for _attempt in range(2):  # one retry when the judge fails
             try:
                 inspection, timing = await pipeline.check_input(
                     messages, None, snapshot
