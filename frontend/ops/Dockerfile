@@ -11,6 +11,7 @@ RUN useradd --system --uid 10002 --home-dir /srv app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py ops_client.py ./
+COPY .streamlit ./.streamlit
 USER app
 EXPOSE 8501
 HEALTHCHECK --interval=15s --timeout=5s --retries=4 \

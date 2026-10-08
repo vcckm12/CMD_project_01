@@ -10,6 +10,7 @@ import json
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -17,6 +18,28 @@ from ops_client import ApiFailure, OpsClient
 
 KST = ZoneInfo("Asia/Seoul")
 STATUSES = ["success", "blocked", "masked", "confirmation_required", "error"]
+# Display name and color per audit status (shared by cards and charts).
+STATUS_STYLE = {"success": ("✅ 정상", "#047857"), "blocked": ("🛑 차단", "#b91c1c"), "masked": ("🔒 정화", "#b45309"),
+                "confirmation_required": ("⏳ 승인 대기", "#1d4ed8"), "error": ("⚠️ 오류", "#6b7280")}  # fmt: skip
+OWASP_NAMES = {"LLM01:2025": "LLM01 프롬프트 인젝션", "LLM02:2025": "LLM02 민감정보 노출", "LLM05:2025": "LLM05 부적절한 출력",
+               "LLM06:2025": "LLM06 과도한 권한", "LLM07:2025": "LLM07 시스템 프롬프트 유출",
+               "LLM10:2025": "LLM10 무제한 자원 소비"}  # fmt: skip
+OVERLAP_STYLE = {"rules_only": ("규칙만", "#111827"), "judge_only": ("AI 판별만", "#7c3aed"), "both": ("둘 다", "#047857"),
+                 "rules_judge_error": ("규칙만(AI 실패)", "#9ca3af")}  # fmt: skip
+
+
+def bar(frame: pd.DataFrame, x: str, y: str, colors: dict[str, str] | None = None, horizontal: bool = False):
+    """Small Altair bar chart with fixed colors per category (Streamlit's default is one color)."""
+    color = (alt.Color(f"{x}:N", scale=alt.Scale(domain=list(colors), range=list(colors.values())), legend=None)
+             if colors else alt.value("#111827"))  # fmt: skip
+    enc = (
+        {"x": alt.X(f"{y}:Q", title=None), "y": alt.Y(f"{x}:N", sort=None, title=None, axis=alt.Axis(labelLimit=240))}
+        if horizontal
+        else {"x": alt.X(f"{x}:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)), "y": alt.Y(f"{y}:Q", title=None)}
+    )
+    chart = alt.Chart(frame).mark_bar(cornerRadius=4).encode(color=color, tooltip=[x, y], **enc)
+    return chart.properties(height=max(160, 34 * len(frame)) if horizontal else 240)
+
 
 st.set_page_config(page_title="AI 가드레일 관제", page_icon="🛡️", layout="wide")
 
@@ -105,20 +128,43 @@ def dashboard() -> None:
             fail(err)
             return
         cols = st.columns(6)
-        cols[0].metric("요청(이벤트)", s["total"])
-        for col, key, label in zip(cols[1:], STATUSES, ["정상", "차단", "정화", "승인 대기", "오류"], strict=True):
-            col.metric(label, s["status_counts"][key])
+        with cols[0].container(border=True):
+            st.metric("요청(이벤트)", s["total"])
+        for col, key in zip(cols[1:], STATUSES, strict=True):
+            with col.container(border=True):
+                st.metric(STATUS_STYLE[key][0], s["status_counts"][key])
         st.caption(f"기준 {kst(s['as_of'])} · 적재 지연 {s['ingestion_lag_seconds']}초 · 10초마다 갱신")
-        a, b = st.columns(2)
-        with a:
-            st.subheader("상태별 이벤트 수")
-            st.bar_chart(pd.Series(s["status_counts"]))
-        with b:
-            st.subheader("OWASP 2025 분류 (룰 적중 수)")
+        a, b, c = st.columns(3)
+        with a.container(border=True):
+            st.markdown("**상태별 이벤트 수**")
+            frame = pd.DataFrame({"상태": [STATUS_STYLE[k][0] for k in STATUSES],
+                                  "건수": [s["status_counts"][k] for k in STATUSES]})  # fmt: skip
+            st.altair_chart(bar(frame, "상태", "건수", {v[0]: v[1] for v in STATUS_STYLE.values()}, horizontal=True),
+                            use_container_width=True)  # fmt: skip
+        with b.container(border=True):
+            st.markdown("**OWASP 2025 분류 (룰 적중 수)**")
             if s["category_counts"]:
-                st.bar_chart(pd.Series(s["category_counts"]))
+                frame = pd.DataFrame({"분류": [OWASP_NAMES.get(k, k) for k in s["category_counts"]],
+                                      "적중": list(s["category_counts"].values())})  # fmt: skip
+                st.altair_chart(bar(frame, "분류", "적중", horizontal=True), use_container_width=True)
             else:
                 st.info("적중한 룰이 없습니다.")
+        with c.container(border=True):
+            st.markdown("**차단을 만든 계층** (규칙 · AI 판별)")
+            rows = [{"단계": name, "계층": OVERLAP_STYLE[k][0], "건수": n}
+                    for stage, name in (("input", "입력"), ("tool", "도구 결과"), ("output", "출력"))
+                    for k, n in (s.get("layer_overlap", {}).get(stage) or {}).items() if n]  # fmt: skip
+            if rows:
+                colors = {v[0]: v[1] for v in OVERLAP_STYLE.values()}
+                chart = alt.Chart(pd.DataFrame(rows)).mark_bar(cornerRadius=4).encode(
+                    x=alt.X("건수:Q", stack="normalize", title=None, axis=alt.Axis(format="%")),
+                    y=alt.Y("단계:N", sort=["입력", "도구 결과", "출력"], title=None),
+                    color=alt.Color("계층:N", scale=alt.Scale(domain=list(colors), range=list(colors.values())),
+                                    legend=alt.Legend(orient="bottom", title=None)),
+                    tooltip=["단계", "계층", "건수"]).properties(height=200)  # fmt: skip
+                st.altair_chart(chart, use_container_width=True)
+            else:
+                st.info("이 기간에 두 계층이 모두 기록된 차단이 없습니다.")
         p95 = s["latency_p95_ms"]
         st.caption(f"서버 처리 시간 P95: {p95:.0f} ms (모델 생성 포함)" if p95 is not None else "서버 처리 시간: 데이터 없음")
         checks = ready["checks"]
@@ -237,7 +283,15 @@ def layer_breakdown(e: dict) -> None:
     rows.append({"계층": "기타(대기·DB·네트워크)", "판정": "—", "ms": round(max(total - used, 0.0), 3)})
     for r in rows:
         r["비중"] = f"{r['ms'] / total * 100:.1f}%"
-    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    table, chart = st.columns([3, 2])
+    table.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    verdict_colors = {"🛑 차단": "#b91c1c", "✅ 통과": "#047857", "⚠️ 판별 실패": "#b45309", "—": "#9ca3af"}
+    frame = pd.DataFrame([{"계층": r["계층"], "판정": r["판정"].replace("— 미실행", "—"), "ms": r["ms"]} for r in rows])
+    chart.altair_chart(alt.Chart(frame).mark_bar(cornerRadius=4).encode(
+        x=alt.X("ms:Q", title="처리 시간 (ms)"), y=alt.Y("계층:N", sort=None, title=None),
+        color=alt.Color("판정:N", scale=alt.Scale(domain=list(verdict_colors), range=list(verdict_colors.values())),
+                        legend=alt.Legend(orient="bottom", title=None)),
+        tooltip=["계층", "판정", "ms"]).properties(height=34 * len(frame) + 40), use_container_width=True)  # fmt: skip
     for stage, label in STAGE_NAMES.items():
         rule = layers.get(f"{stage}_rules", {}).get("verdict")
         judge = layers.get(f"{stage}_judge", {}).get("verdict")
@@ -531,12 +585,12 @@ def compare_view(run_id: str) -> None:
     st.markdown("**입력**")
     st.text(r["input_text"])  # plain text: never rendered as markdown/HTML
     off, on = st.columns(2)
-    with off:
-        st.markdown("#### 🔓 OFF (가드레일 없음)")
+    with off.container(border=True):
+        st.markdown("#### :red[🔓 OFF (가드레일 없음)]")
         st.caption(f"노출: {exposed(r['off_exposure'])} · {r['off_ms']} ms")
         st.text(r["off_text"] if r["off_text"] is not None else "(모델 오류)")
-    with on:
-        st.markdown("#### 🛡️ ON (규칙 + AI 판별)")
+    with on.container(border=True):
+        st.markdown("#### :green[🛡️ ON (규칙 + AI 판별)]")
         stage = f"/{r['on_stage']}" if r["on_stage"] else ""
         st.caption(f"{r['on_status']}{stage} · 막은 계층: {LAYERS.get(r['stopped_by'], r['stopped_by'])}"
                    f" · 노출: {exposed(r['on_exposure'])} · {r['on_ms']} ms")  # fmt: skip
@@ -612,6 +666,9 @@ if client().user is None:
     login_page()
 else:
     with st.sidebar:
+        st.markdown("### 🛡️ GUARDRAIL OPS")
+        lab_env = client().user["role"] == "admin" and lab_available()  # the lab check is admin-only
+        st.caption("AI 보안 가드레일 관제" + (" · 🧪 LAB 환경" if lab_env else ""))
         st.write(f"**{client().user['email']}** ({client().user['role']})")
         st.success("🛡️ 보안 보호 활성")
         if client().user["role"] == "admin" and lab_available():

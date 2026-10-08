@@ -1,0 +1,15 @@
+# Ops dashboard theme, matching the customer web (D-41).
+[theme]
+base = "light"
+primaryColor = "#111827"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f6f2ec"
+textColor = "#1f2937"
+linkColor = "#1d4ed8"
+borderColor = "#e5e7eb"
+showWidgetBorder = true
+baseRadius = "0.7rem"
+chartCategoricalColors = ["#111827", "#b45309", "#047857", "#b91c1c", "#1d4ed8", "#7c3aed", "#6b7280"]
+
+[theme.sidebar]
+backgroundColor = "#f6f2ec"
