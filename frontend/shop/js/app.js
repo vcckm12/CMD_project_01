@@ -42,20 +42,45 @@ function errorBox(err) {
   return h("p", { class: "error", role: "alert", text: notice(err) });
 }
 
+function navLink(path, label) {
+  const here = location.pathname === path || (path !== "/" && location.pathname.startsWith(path));
+  return link(path, label, here ? { class: "active", "aria-current": "page" } : {});
+}
+
 function layout(...content) {
   const user = api.session.user;
   return [
     h("header", { class: "topbar" },
-      h("div", { class: "brand" }, link("/", "GUARDRAIL FASHION")),
+      h("div", { class: "brand" }, link("/", "GUARDRAIL FASHION"), h("small", {}, "AI SHOPPING ASSISTANT")),
       h("span", { class: "badge", title: "운영 환경에서는 보안 보호를 끌 수 없습니다" }, "🛡️ 보안 보호 활성"),
       user
         ? h("nav", { "aria-label": "주 메뉴" },
-            link("/", "상품·AI"), link("/cart", "장바구니"), link("/orders", "주문"), link("/settings/clients", "연결"),
+            navLink("/", "상품·AI"), navLink("/cart", "장바구니"), navLink("/orders", "주문"), navLink("/settings/clients", "연결"),
             h("button", { class: "link", onclick: onLogout }, "모든 기기 로그아웃"))
         : null),
     h("main", { id: "main", tabindex: "-1" }, ...content),
-    h("footer", {}, "AI 답변은 부정확할 수 있습니다. 상품·주문 정보와 변경 내용을 직접 확인해 주세요."),
+    h("footer", {}, h("div", { class: "inner" },
+      h("span", {}, h("b", {}, "GUARDRAIL FASHION"), " · 입력·실행·출력 3단계 AI 보안 가드레일 적용"),
+      h("span", {}, "AI 답변은 부정확할 수 있습니다. 상품·주문 정보와 변경 내용을 직접 확인해 주세요."))),
   ];
+}
+
+// Product illustrations live on this origin (CSP img-src 'self'); unknown SKUs get the default picture.
+const CATEGORIES = [["TOP", "상의"], ["BTM", "하의"], ["OUT", "아우터"], ["SHO", "신발"], ["ACC", "잡화"], ["ELC", "디지털"]];
+
+function categoryOf(sku) {
+  const code = String(sku || "").split("-")[1];
+  return CATEGORIES.find(([c]) => c === code)?.[1] || "기타";
+}
+
+// SKUs with their own illustration in /img/products/; any other product shows default.svg (no failed request).
+const ARTWORK = new Set(["GF-ACC-001", "GF-ACC-002", "GF-BTM-001", "GF-BTM-002", "GF-ELC-001", "GF-ELC-002", "GF-OUT-001", "GF-OUT-002", "GF-SHO-001", "GF-TOP-001", "GF-TOP-002", "GF-TOP-003"]);
+
+function productImage(sku, alt = "") {
+  const safe = ARTWORK.has(sku) ? sku : "default";
+  const img = h("img", { class: "thumb", src: `/img/products/${safe}.svg`, alt, loading: "lazy", width: 320, height: 320 });
+  img.addEventListener("error", () => { img.src = "/img/products/default.svg"; }, { once: true });
+  return img;
 }
 
 async function onLogout() {
@@ -118,18 +143,37 @@ function loginView(params) {
     h("label", { for: "password" }, "비밀번호 (회원가입 시 12자 이상)"), password,
     submit, message);
   setMode("login");
-  return layout(form);
+  const hero = h("div", { class: "auth-hero" },
+    h("div", {}, h("div", { class: "kicker" }, "FW 2026 COLLECTION"),
+      h("h1", {}, "찾고, 묻고, 고르세요.", h("br"), "AI 도우미가 함께합니다."),
+      h("p", { class: "muted" }, "상품 추천부터 주문 조회, 장바구니 변경 제안까지.")),
+    h("ul", {},
+      h("li", {}, "질문과 답변을 AI 보안 가드레일이 검사합니다"),
+      h("li", {}, "본인 주문·장바구니만 조회됩니다"),
+      h("li", {}, "변경은 확인 화면에서 승인해야 적용됩니다")));
+  return layout(h("div", { class: "auth" }, hero, form));
 }
 
 // ------------------------------------------------------------------ SCR-C02 products + chat
 
 async function homeView() {
   const results = h("div", { class: "products", "aria-live": "polite" });
-  const q = h("input", { id: "q", type: "search", maxlength: 100, placeholder: "상품명 또는 SKU" });
+  const q = h("input", { id: "q", type: "search", maxlength: 100, placeholder: "상품명 또는 SKU 검색" });
+  let items = [];
+  let category = "전체";
+  const chips = h("div", { class: "chips", role: "group", "aria-label": "카테고리" });
+  const render = () => {
+    const shown = category === "전체" ? items : items.filter((p) => categoryOf(p.sku) === category);
+    mount(results, shown.length ? shown.map(productCard) : [h("p", { class: "empty" }, "검색 결과가 없습니다.")]);
+    for (const b of chips.children) b.setAttribute("aria-pressed", String(b.dataset.cat === category));
+  };
+  for (const name of ["전체", ...CATEGORIES.map(([, n]) => n)]) {
+    chips.append(h("button", { type: "button", "data-cat": name, onclick: () => { category = name; render(); } }, name));
+  }
   const search = async () => {
     try {
-      const data = await api.get(`/api/v1/products?limit=20&q=${encodeURIComponent(q.value.trim())}`);
-      mount(results, data.data.items.length ? data.data.items.map(productCard) : [h("p", { class: "muted" }, "검색 결과가 없습니다.")]);
+      items = (await api.get(`/api/v1/products?limit=20&q=${encodeURIComponent(q.value.trim())}`)).data.items;
+      render();
     } catch (err) {
       mount(results, errorBox(err));
     }
@@ -137,19 +181,30 @@ async function homeView() {
   const searchForm = h("form", { class: "search", onsubmit: (e) => { e.preventDefault(); search(); } },
     h("label", { for: "q", class: "sr-only" }, "상품 검색"), q, h("button", { type: "submit" }, "검색"));
   search();
-  return layout(h("div", { class: "split" },
-    h("section", { class: "card", "aria-labelledby": "products-title" }, h("h2", { id: "products-title" }, "상품"), searchForm, results),
+  const hero = h("div", { class: "hero" },
+    h("div", { class: "kicker" }, "FW 2026 NEW ARRIVALS"),
+    h("h1", {}, "이번 시즌, 무엇이든 AI에게 물어보세요"),
+    h("p", {}, "사이즈·재고·쿠폰 확인부터 장바구니 담기까지. 모든 질문과 답변은 보안 가드레일이 검사합니다."),
+    h("span", { class: "shield", "aria-hidden": "true" }, "🛡️"));
+  return layout(hero, h("div", { class: "shop" },
+    h("section", { "aria-labelledby": "products-title" },
+      h("h2", { id: "products-title", class: "sr-only" }, "상품"),
+      h("div", { class: "toolbar" }, chips, searchForm), results),
     await chatPanel()));
 }
 
 function productCard(p) {
   const qty = h("input", { type: "number", min: 1, max: 99, value: 1, "aria-label": `${p.name} 수량` });
+  const soldOut = p.stock_count <= 0;
   return h("article", { class: "product" },
+    productImage(p.sku),
+    h("div", { class: "cat" }, categoryOf(p.sku)),
     h("h3", { text: p.name }),
-    h("p", {}, krw(p.price_krw), " · ", p.stock_count > 0 ? `재고 ${p.stock_count}개` : "품절"),
+    h("p", { class: "price" }, krw(p.price_krw)),
+    h("p", { class: soldOut ? "stock soldout" : "stock" }, soldOut ? "품절" : `재고 ${p.stock_count}개`),
     h("div", { class: "row" }, qty,
       h("button", {
-        disabled: p.stock_count <= 0,
+        disabled: soldOut,
         onclick: () => proposeChange("set_cart_item", { product_id: p.id, quantity: Number(qty.value) }),
       }, "장바구니 담기 제안")));
 }
@@ -171,7 +226,11 @@ async function chatPanel() {
     }
     return sessionId;
   };
+  const suggestions = h("div", { class: "suggest" }, h("p", {}, "이렇게 물어보세요"),
+    ...SUGGESTIONS.map((text) => h("button", { type: "button", onclick: () => { input.value = text; input.focus(); } }, text)));
+  log.append(suggestions);
   const bubble = (who, node, extra = "") => {
+    suggestions.remove();
     log.append(h("div", { class: `bubble ${who} ${extra}` }, node));
     log.scrollTop = log.scrollHeight;
   };
@@ -187,7 +246,10 @@ async function chatPanel() {
       counter.textContent = "0/8000";
       const stageText = h("span", {}, "요청을 보내는 중");
       const clock = h("span", {}, "");
-      const waiting = h("p", { class: "muted", role: "status", "aria-live": "polite" }, stageText, clock);
+      const steps = h("div", { class: "steps", "aria-hidden": "true" },
+        ...["질문 검사", "답변 생성", "답변 검사"].map((name) => h("span", {}, name)));
+      const waiting = h("div", { role: "status", "aria-live": "polite" },
+        steps, h("p", { class: "muted small" }, stageText, clock));
       bubble("bot", waiting, "pending");
       const started = Date.now();
       const timer = setInterval(() => {
@@ -197,6 +259,8 @@ async function chatPanel() {
         const id = await ensureSession();
         const body = await api.streamChat("/api/v1/chat/completions", { session_id: id, prompt }, (p) => {
           stageText.textContent = stageLabel(p);
+          const now = STAGE_STEP[p.stage] ?? 0;
+          [...steps.children].forEach((s, i) => { s.className = i < now ? "done" : i === now ? "now" : ""; });
         });
         waiting.parentElement.remove();
         renderReply(bubble, body);
@@ -216,13 +280,18 @@ async function chatPanel() {
     onclick: () => {
       sessionStorage.removeItem("chat_session");
       sessionId = null;
-      log.replaceChildren();
+      log.replaceChildren(suggestions);
     },
   }, "새 대화");
   return h("section", { class: "card chat", "aria-labelledby": "chat-title" },
-    h("div", { class: "row between" }, h("h2", { id: "chat-title" }, "AI 도우미"), reset),
-    h("p", { class: "muted small" }, "서버에는 개인정보를 가린 대화만 보관됩니다."), log, form);
+    h("div", { class: "chat-head" },
+      h("div", { class: "row between" }, h("h2", { id: "chat-title" }, "💬 AI 도우미"), reset),
+      h("p", { class: "muted small" }, "🛡️ 질문·답변을 보안 검사합니다 · 개인정보를 가린 대화만 보관")),
+    log, form);
 }
+
+const SUGGESTIONS = ["겨울 아우터 추천해줘", "내 쿠폰 뭐 있어?", "무선 마우스 장바구니에 1개 담아줘", "최근 주문 배송 상태 알려줘"];
+const STAGE_STEP = { input_check: 0, generating: 1, tool: 1, output_check: 2 };
 
 const TOOL_LABELS = {
   search_products: "상품 검색", list_orders: "주문 목록", get_order: "주문 상세", get_cart: "장바구니",
@@ -286,7 +355,7 @@ async function cartView() {
   const rows = c.items.map((item) => {
     const qty = h("input", { type: "number", min: 1, max: 99, value: item.quantity, "aria-label": `${item.name} 수량` });
     return h("tr", {},
-      h("td", { text: item.name }), h("td", {}, krw(item.price_krw)),
+      h("td", {}, h("div", { class: "cart-item" }, productImage(item.sku), h("span", { text: item.name }))), h("td", {}, krw(item.price_krw)),
       h("td", {}, qty, item.available ? null : h("span", { class: "tag warn" }, "구매 불가")),
       h("td", {},
         h("button", { onclick: () => proposeChange("set_cart_item", { product_id: item.product_id, quantity: Number(qty.value) }) }, "변경"),
@@ -294,13 +363,14 @@ async function cartView() {
   });
   const usable = coupons.data.items.filter((x) => x.state === "available");
   const select = h("select", { id: "coupon", "aria-label": "보유 쿠폰" },
+    h("option", { value: "" }, "쿠폰을 선택하세요"),
     ...usable.map((x) => h("option", { value: x.id, disabled: !x.eligible },
       `${x.code} · ${krw(x.discount_krw)} 할인 · ${krw(x.min_subtotal_krw)} 이상 · ~${kst(x.expires_at)}${x.eligible ? "" : " (조건 미충족)"}`)));
   return layout(h("section", { class: "card" },
     h("h1", {}, "장바구니"),
     c.items.length
       ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "상품"), h("th", {}, "단가"), h("th", {}, "수량"), h("th", {}, ""))), h("tbody", {}, rows))
-      : h("p", { class: "muted" }, "장바구니가 비어 있습니다."),
+      : h("div", { class: "empty" }, h("p", {}, "장바구니가 비어 있습니다."), link("/", "상품 보러 가기", { class: "button" })),
     h("h2", {}, "쿠폰"),
     c.coupon ? h("p", {}, `적용 쿠폰: ${c.coupon.code}`, c.coupon.reason ? ` (${REASONS[c.coupon.reason] || "현재 조건 미충족"})` : "",
       " ", h("button", { onclick: () => proposeChange("remove_coupon", {}) }, "해제 제안")) : null,
@@ -483,7 +553,8 @@ async function route() {
   else if (path === "/settings/clients") view = await clientsView();
   else view = layout(h("p", {}, "페이지를 찾을 수 없습니다."), link("/", "처음으로"));
   mount(app, view);
-  document.getElementById("main")?.focus();
+  window.scrollTo(0, 0);
+  document.getElementById("main")?.focus({ preventScroll: true }); // keyboard/screen-reader start point
 }
 
 window.addEventListener("popstate", route);

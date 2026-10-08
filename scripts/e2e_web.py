@@ -121,7 +121,7 @@ def main() -> int:
         page.get_by_role("button", name="검색").click()
         expect(page.locator("article.product", has_text="XSS-PROBE")).to_be_visible()
         assert page.evaluate("window.__xss === undefined"), "injected script ran"
-        assert page.locator("article.product img").count() == 0, (
+        assert page.locator("article.product img:not(.thumb)").count() == 0, (
             "injected element was rendered"
         )
 

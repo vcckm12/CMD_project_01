@@ -102,7 +102,7 @@ async def get_cart(conn: AsyncConnection, user_id: uuid.UUID) -> dict | None:
         if cart is None:
             return None
         await cur.execute(
-            "SELECT p.id, p.name, p.price_krw, p.stock_count, p.is_active, ci.quantity"
+            "SELECT p.id, p.sku, p.name, p.price_krw, p.stock_count, p.is_active, ci.quantity"
             " FROM commerce.cart_items ci JOIN commerce.products p ON p.id = ci.product_id"
             " WHERE ci.cart_id = %s ORDER BY p.name",
             (cart["id"],),
@@ -125,6 +125,7 @@ async def get_cart(conn: AsyncConnection, user_id: uuid.UUID) -> dict | None:
         "items": [
             {
                 "product_id": str(i["id"]),
+                "sku": i["sku"],
                 "name": i["name"],
                 "price_krw": i["price_krw"],
                 "quantity": i["quantity"],

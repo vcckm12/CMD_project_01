@@ -89,6 +89,7 @@
 | D-37 | LAB ON/OFF 비교를 단건 중심으로 바꾼다: LAB 채팅 이벤트의 event_id로 같은 입력을 재현하거나 공격 문장을 직접 입력해 OFF·ON 답변 원문을 나란히 표시(LAB-05). LAB은 모든 채팅 입력을 API 메모리에 보관(최대 500건, 재시작 시 삭제). 운영 이벤트는 원문이 없어 재현하지 않음. 시험셋 일괄 비교는 판정만 표시 | 사용자 결정(2026-10-06). LAB은 합성 데이터·미끼 비밀만 사용(D-21) |
 | D-38 | OpenAI 호환 API는 일반 클라이언트 기본값을 받아 준다: top_p·frequency/presence_penalty·seed·stop·max_completion_tokens는 형식만 검사하고 무시, max_tokens는 512·temperature는 1로 상한 적용, stream_options.include_usage 지원. tools·tool_choice·logprobs·n>1은 계속 거절. 로그인 실패 잠금은 `LOGIN_LIMIT_BY_IP`(기본 true)로 IP 키를 끌 수 있고 Docker Desktop 호스트(.env·.env.lab)는 false(이메일 기준만) | AnythingLLM 기본값(max_tokens 1024 등) 거절, Docker Desktop에서는 모든 접속자가 bridge gateway IP로 보여 한 사람의 실패가 전원을 잠금 |
 | D-39 | 개발·시연은 LAB(8443)만 사용하고 운영 관제(443)는 닫아 둔다. 개발 DB(ag_prod)는 2026-10-06 이후 시험 데이터를 지우고 재설치(관리자 1·합성 카탈로그·룰셋 v1). 저장소는 공개 유지 | 사용자 결정(2026-10-07) |
+| D-40 | 쇼핑 웹 디자인 개편(패션몰 톤: 배너·카테고리·상품 일러스트 SVG·고정 AI 패널·처리 단계 칩·추천 질문). 상품 이미지는 같은 출처의 자체 제작 SVG만(CSP img-src 'self'), 장바구니 항목에 sku 추가. Nginx 요청 수 제한은 API(`/api`, `/v1`)에만 적용하고 정적 파일은 제외, 상품 이미지는 1일 캐시 | 사용자 결정(2026-10-08). 정적 파일까지 제한하면 이미지가 늘어난 화면에서 스크립트가 429로 거절되어 페이지가 멈춤(E2E에서 발견). Docker Desktop에서는 모든 사용자가 같은 IP로 보이므로 정적 파일 제한은 전원에게 영향 |
 | D-24 | 공개 GitHub 저장소 `vcckm12/CMD_project_01`의 `v2` 브랜치에서 신규 구성, 기존 MVP의 datasets·화면 디자인만 선별 이전. `.env`·키·인증서·`reference/PayloadsAllTheThings-master`는 커밋 금지 | 기존 MVP(무인증·원문 감사·mock fallback 답변)는 이 설계와 호환되지 않음 |
 
 ## 5. 공통 식별자·상태·기본값
