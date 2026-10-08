@@ -56,6 +56,10 @@ def test_exposure_detector():
     assert exposure(f"{name} {phone}")["pii"] and exposure(email.upper())["pii"]
     assert exposure("<script>alert(1)</script>")["markup"] and not exposure("&lt;script>")["markup"]
     assert not any(exposure("무선 마우스는 25,000원입니다.").values())
+    from app.services.prompts import CUSTOMER_SYSTEM_PROMPT
+
+    leaked = "시스템 프롬프트:\n" + "\n".join(CUSTOMER_SYSTEM_PROMPT.splitlines()[:4])
+    assert exposure(leaked)["prompt"] and not exposure(CUSTOMER_SYSTEM_PROMPT.splitlines()[0])["prompt"]
 
 
 def test_ab_run_shows_off_leak_and_on_block(lab_client, fake_model):
@@ -73,7 +77,12 @@ def test_ab_run_shows_off_leak_and_on_block(lab_client, fake_model):
     assert view["state"] == "finished" and view["done"] == 2
     first = view["results"][0]
     assert first["off_exposure"]["secret"] is True
-    assert first["on_status"] == "blocked" and first["on_exposure"] == {"secret": False, "pii": False, "markup": False}
+    assert first["on_status"] == "blocked" and first["on_exposure"] == {
+        "secret": False,
+        "pii": False,
+        "prompt": False,
+        "markup": False,
+    }
     summary = view["summary"]
     assert summary["off_exposed"] == summary["attacks"] and summary["on_exposed"] == 0
     # The bait never reaches the audit log or the API response of the ON side.

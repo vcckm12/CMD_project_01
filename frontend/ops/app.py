@@ -535,7 +535,12 @@ def lab_available() -> bool:
 def exposed(e: dict) -> str:
     parts = [
         name
-        for key, name in (("secret", "미끼 비밀"), ("pii", "합성 개인정보"), ("markup", "스크립트·외부 이미지"))
+        for key, name in (
+            ("secret", "미끼 비밀"),
+            ("pii", "합성 개인정보"),
+            ("prompt", "시스템 프롬프트"),
+            ("markup", "스크립트·외부 이미지"),
+        )
         if e.get(key)
     ]
     return ", ".join(parts) if parts else "노출 없음"
