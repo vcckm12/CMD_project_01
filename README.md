@@ -102,10 +102,12 @@ DB 포트는 호스트에 공개하지 않습니다. 데이터를 지우고 다�
 
 | 경로 | 내용 |
 |---|---|
-| `docs/` | 설계 문서 (아키텍처는 [01_system_architecture.md](docs/01_system_architecture.md)) |
-| `backend/migrations/` | SQL migration (DES-002가 기준) |
-| `backend/app/` | FastAPI 애플리케이션 |
-| `deployment/` | Postgres 초기화, (예정) Nginx |
-| `frontend/shop/` | 고객 쇼핑 웹 (이전 MVP 화면, 재작성 예정) |
-| `datasets/` | 공격·정상 시험셋 (이전 MVP에서 이전, 재라벨링 예정) |
-| `reference/` | 기획 참조 자료 (공격 payload corpus는 저장소 제외) |
+| `docs/` | 설계 및 분석 문서 (아키텍처는 [01_system_architecture.md](docs/01_system_architecture.md), 종합 분석 보고서는 [PROJECT_ANALYSIS_AND_LEARNING_REPORT.md](docs/PROJECT_ANALYSIS_AND_LEARNING_REPORT.md)) |
+| `backend/migrations/` | SQL migration (DES-002 기준) |
+| `backend/app/` | FastAPI 애플리케이션 및 3단계 가드레일 엔진 |
+| `deployment/` | Nginx 및 Postgres 설정 |
+| `frontend/shop/` | 패션 쇼핑몰 고객 웹 UI (HTML/CSS/JS) |
+| `frontend/ops/` | Streamlit 기반 보안 관제 및 LAB 대시보드 |
+| `datasets/` | 공격 및 정상 시험 데이터셋 |
+| `scripts/` | E2E 브라우저 테스트 및 모델/가드레일 검증 스크립트 |
+| `reference/` | 기획 참조 자료 |
