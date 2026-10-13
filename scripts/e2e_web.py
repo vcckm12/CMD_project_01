@@ -77,9 +77,9 @@ def main() -> int:
 
         step("product list, propose adding to cart, confirm")
         page.get_by_role("link", name="상품·AI").click()
-        page.fill("#q", "무선 마우스")
+        page.fill("#q", "레더 벨트")
         page.get_by_role("button", name="검색").click()
-        card = page.locator("article.product", has_text="무선 마우스").first
+        card = page.locator("article.product", has_text="레더 벨트").first
         card.locator("input").fill("2")
         card.get_by_role("button", name="장바구니 담기 제안").click()
         expect(page.get_by_role("heading", name="변경 내용 확인")).to_be_visible()
@@ -87,13 +87,13 @@ def main() -> int:
         page.get_by_role("button", name="이 내용으로 변경").click()
         expect(page.get_by_text("변경이 적용되었습니다.")).to_be_visible()
         page.get_by_role("link", name="장바구니로 이동").click()
-        expect(page.locator("table")).to_contain_text("무선 마우스")
+        expect(page.locator("table")).to_contain_text("레더 벨트")
 
         step(
             "reload keeps the session via refresh cookie (access token is memory-only)"
         )
         page.reload()
-        expect(page.locator("table")).to_contain_text("무선 마우스")
+        expect(page.locator("table")).to_contain_text("레더 벨트")
         assert page.evaluate("Object.keys(localStorage).length") == 0, (
             "nothing may be stored in localStorage"
         )

@@ -157,7 +157,7 @@ PUT ruleset은 rule_id·stage·category·kind·pattern·flags·action·marker·p
 ```json
 {
   "session_id": "30000000-0000-4000-8000-000000000001",
-  "prompt": "무선 마우스를 찾아줘",
+  "prompt": "레더 벨트를 찾아줘",
   "model": "qwen3:8b",
   "stream": false
 }

@@ -66,7 +66,7 @@ function layout(...content) {
 }
 
 // Product illustrations live on this origin (CSP img-src 'self'); unknown SKUs get the default picture.
-const CATEGORIES = [["TOP", "상의"], ["BTM", "하의"], ["OUT", "아우터"], ["SHO", "신발"], ["ACC", "잡화"], ["ELC", "디지털"]];
+const CATEGORIES = [["TOP", "상의"], ["BTM", "하의"], ["OUT", "아우터"], ["SHO", "신발"], ["ACC", "잡화"]];
 
 function categoryOf(sku) {
   const code = String(sku || "").split("-")[1];
@@ -74,7 +74,7 @@ function categoryOf(sku) {
 }
 
 // SKUs with their own illustration in /img/products/; any other product shows default.svg (no failed request).
-const ARTWORK = new Set(["GF-ACC-001", "GF-ACC-002", "GF-BTM-001", "GF-BTM-002", "GF-ELC-001", "GF-ELC-002", "GF-OUT-001", "GF-OUT-002", "GF-SHO-001", "GF-TOP-001", "GF-TOP-002", "GF-TOP-003"]);
+const ARTWORK = new Set(["GF-ACC-001", "GF-ACC-002", "GF-ACC-003", "GF-ACC-004", "GF-BTM-001", "GF-BTM-002", "GF-OUT-001", "GF-OUT-002", "GF-SHO-001", "GF-TOP-001", "GF-TOP-002", "GF-TOP-003"]);
 
 function productImage(sku, alt = "") {
   const safe = ARTWORK.has(sku) ? sku : "default";
@@ -290,7 +290,7 @@ async function chatPanel() {
     log, form);
 }
 
-const SUGGESTIONS = ["겨울 아우터 추천해줘", "내 쿠폰 뭐 있어?", "무선 마우스 장바구니에 1개 담아줘", "최근 주문 배송 상태 알려줘"];
+const SUGGESTIONS = ["겨울 아우터 추천해줘", "내 쿠폰 뭐 있어?", "레더 벨트 장바구니에 1개 담아줘", "최근 주문 배송 상태 알려줘"];
 const STAGE_STEP = { input_check: 0, generating: 1, tool: 1, output_check: 2 };
 
 const TOOL_LABELS = {

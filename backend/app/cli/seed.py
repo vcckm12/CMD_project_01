@@ -26,9 +26,10 @@ PRODUCTS = [
     ("GF-SHO-001", "베이직 스니커즈", "편안한 착화감의 화이트 스니커즈", 55000, 20),
     ("GF-ACC-001", "미니멀 볼캡", "사이즈 조절 가능한 코튼 볼캡", 19000, 40),
     ("GF-ACC-002", "캔버스 토트백", "A4 수납 가능한 캔버스 토트백", 25000, 15),
-    ("GF-ELC-001", "무선 마우스", "2.4GHz 무선 저소음 마우스", 25000, 50),
-    ("GF-ELC-002", "블루투스 이어폰", "노이즈 캔슬링 무선 이어폰", 89000, 0),
+    ("GF-ACC-003", "레더 벨트", "소가죽 클래식 레더 벨트", 25000, 50),
+    ("GF-ACC-004", "캐시미어 머플러", "캐시미어 블렌드 머플러", 89000, 0),
 ]
+RETIRED = ("GF-ELC-001", "GF-ELC-002")  # earlier non-fashion items: hidden, kept for existing orders
 COUPONS = [
     ("WELCOME5000", 5000, 30000, "60 days"),
     ("AUTUMN10000", 10000, 80000, "30 days"),
@@ -49,6 +50,7 @@ def main() -> int:
                 " price_krw = EXCLUDED.price_krw, stock_count = EXCLUDED.stock_count",
                 (sku, name, desc, price, stock),
             )
+        conn.execute("UPDATE commerce.products SET is_active = false WHERE sku = ANY(%s)", (list(RETIRED),))
         for code, discount, minimum, ttl in COUPONS:
             conn.execute(
                 "INSERT INTO commerce.coupons (code, discount_krw, min_subtotal_krw, expires_at)"
@@ -74,7 +76,7 @@ def main() -> int:
         history = [
             ("delivered", "40 days", [("GF-TOP-001", 1), ("GF-ACC-001", 2)]),
             ("shipped", "2 days", [("GF-SHO-001", 1)]),
-            ("confirmed", "3 hours", [("GF-BTM-001", 1), ("GF-ELC-001", 1)]),
+            ("confirmed", "3 hours", [("GF-BTM-001", 1), ("GF-ACC-003", 1)]),
         ]
         for status, ago, lines in history:
             order_id = uuid.uuid4()

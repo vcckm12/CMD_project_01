@@ -80,7 +80,7 @@ docker run --rm -e EDGE_IP=$HIP -e OPS_URL=https://ops.example.internal:8443 -e 
 docker run --rm -e EDGE_IP=$HIP -e OPS_EMAIL=<lab 관리자> -e OPS_PASSWORD=<비밀번호> -v "$PWD/scripts:/s" -v "$PWD/tmp:/out" ag-e2e python /s/e2e_lab.py
 ```
 
-쇼핑 웹 E2E는 LAB DB에 이름에 markup이 든 XSS 시험 상품(SKU `E2E-XSS-001`)이 있어야 합니다. 점검 전용 LAB 관리자 비밀번호는 `secrets/lab/e2e_admin_password.txt`, 개발 DB 관리자(admin@example.internal) 비밀번호는 `secrets/prod_admin_password.txt`(둘 다 커밋 제외)에 있습니다.
+쇼핑 웹 E2E는 LAB DB에 이름에 markup이 든 XSS 시험 상품(SKU `E2E-XSS-001`)이 필요합니다. 평소에는 쇼핑몰에 보이지 않게 꺼 두고, 점검할 때만 켭니다: `docker exec ag_lab-postgres-1 psql -U postgres -d ai_guardrail -c "UPDATE commerce.products SET is_active = <true|false> WHERE sku = 'E2E-XSS-001'"`. 점검 전용 LAB 관리자 비밀번호는 `secrets/lab/e2e_admin_password.txt`, 개발 DB 관리자(admin@example.internal) 비밀번호는 `secrets/prod_admin_password.txt`(둘 다 커밋 제외)에 있습니다.
 
 ### AnythingLLM 연결
 
