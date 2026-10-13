@@ -290,7 +290,7 @@ async function chatPanel() {
     log, form);
 }
 
-const SUGGESTIONS = ["겨울 아우터 추천해줘", "내 쿠폰 뭐 있어?", "레더 벨트 장바구니에 1개 담아줘", "최근 주문 배송 상태 알려줘"];
+const SUGGESTIONS = ["겨울 아우터 추천해줘", "내 쿠폰 뭐 있어?", "레더 벨트 찾아서 장바구니에 1개 담아줘", "최근 주문 배송 상태 알려줘"];
 const STAGE_STEP = { input_check: 0, generating: 1, tool: 1, output_check: 2 };
 
 const TOOL_LABELS = {
