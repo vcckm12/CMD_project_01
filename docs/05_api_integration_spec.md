@@ -144,6 +144,7 @@ preview는 모델이 쓴 문장 대신 서버가 조회한 상품명·변경 전
 | LAB-04 | GET /api/v1/lab/inputs/{event_id} | lab admin, ops 채널, APP_ENV=lab만 등록 | 채팅 요청의 검사 대상 메시지 [{role, content}] (메모리 보관, 없으면 404, D-30·D-37) |
 | LAB-04 비고 | | | 도구 결과 단계에서 막힌 경우 role `tool:<도구명>`으로 차단된 도구 결과도 포함 |
 | LAB-05 | POST /api/v1/lab/compare | lab admin, `{event_id}` 또는 `{text}` 중 하나 | 202 run_id. LAB-02로 조회하면 input_text·off_text·on_text·on_layers 포함(D-37) |
+| LAB-06 | GET /api/v1/lab/rule-suggestions · POST …/{event_id}/generate · POST …/{event_id}/decision `{accept}` | lab admin, APP_ENV=lab만 | AI만 차단된 LAB 입력과 정규식 제안(검사 결과 포함), YES는 수집용 draft에 규칙 추가(D-46) |
 | LAB-00 | GET /api/v1/lab/status | lab admin | 실행 목록과 진행률(lab에서만 존재, 관제 메뉴 노출 판단에 사용) |
 
 PUT ruleset은 rule_id·stage·category·kind·pattern·flags·action·marker·priority와 policy allowlist만 허용한다. DB에 없는 필드, 길이 제한 완화, 강제 가드레일 해제를 거부한다. 게시 재인증 비밀번호는 모델·DB payload·로그에 저장하지 않는다. 변경 충돌은 409 RULESET_CONFLICT, compile·검증 실패는 422 RULESET_VALIDATION_FAILED이고 고정 failure code 목록을 `error.details`로 준다. 게시·롤백의 비밀번호 재확인 실패는 403 REAUTH_FAILED다. 게시가 성공하면 같은 프로세스의 snapshot을 즉시 교체한다. AUDIT·RULE·ALERT API는 ops 채널이 아니면 404, 고객 토큰이면 403이다. 이벤트 목록 cursor는 (occurred_at, event_id) keyset을 HMAC으로 서명한 값이다. 게시·롤백도 outbox와 함께 transaction으로 기록한다.

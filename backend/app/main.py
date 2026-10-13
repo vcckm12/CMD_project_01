@@ -131,9 +131,11 @@ def create_app(settings: Settings | None = None, *, ollama_transport=None) -> Fa
         from app.api import lab as lab_api
         from app.lab.inputs import LabInputStore
         from app.lab.runner import ABRunner
+        from app.lab.suggest import RuleSuggester
 
         app.state.lab = ABRunner(app.state.ollama, app.state.guardrails, app.state.rule_cache)
         app.state.lab_inputs = LabInputStore()
+        app.state.rule_suggester = RuleSuggester(app.state.ollama)
         app.include_router(lab_api.router)
     return app
 

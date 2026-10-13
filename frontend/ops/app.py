@@ -648,6 +648,65 @@ def lab_page() -> None:
     run_view()
 
 
+# ----------------------------------------------------------------- LAB regex suggestions (D-46)
+
+CHECK_NAMES = {"compiles_and_safe": "문법·안전성(느려지는 패턴 없음)", "matches_source": "원래 공격 문장에 걸림",
+               "no_benign_hits": "정상 질문 90건에 하나도 안 걸림"}  # fmt: skip
+
+
+def decide(event_id: str, accept: bool) -> None:
+    with shown_errors():
+        client().post(f"/api/v1/lab/rule-suggestions/{event_id}/decision", {"accept": accept})
+
+
+def suggestions_page() -> None:
+    st.error("🧪 LAB 환경 — 합성 데이터·미끼 비밀 전용입니다. 운영 환경이 아닙니다.")
+    st.header("정규식 제안")
+    st.caption("정규식은 통과했지만 AI 판별이 막은 LAB 입력(최근 7일)입니다. AI가 정규식을 제안하고 서버가 자동으로 "
+               "검사합니다. YES를 누르면 수집용 draft 룰셋에 추가되고, '규칙·정책'에서 검증·게시(비밀번호 확인)해야 "
+               "실제로 적용됩니다.")  # fmt: skip
+    with shown_errors() as call:
+        data = client().get("/api/v1/lab/rule-suggestions")
+    if call.failed:
+        return
+    if data["draft"]:
+        d = data["draft"]
+        st.info(f"수집 중인 draft: {d['label']} · 추가된 규칙 {d['added']}개 → '규칙·정책' 메뉴에서 검증·게시하세요.")
+    if not data["items"]:
+        st.info("최근 7일 동안 'AI만 차단'된 LAB 입력이 없습니다. LAB 쇼핑몰에서 정규식에 없는 표현으로 공격해 보세요. "
+                "(입력 원문은 LAB API 메모리에만 있어 API를 다시 시작하면 사라집니다.)")  # fmt: skip
+    for item in data["items"]:
+        s = item["suggestion"]
+        with st.container(border=True):
+            st.caption(f"{kst(item['occurred_at'])} · event_id {item['event_id']}")
+            st.text(item["text"])  # plain text: never rendered as markdown/HTML
+            if s is None or s["state"] in ("invalid", "rejected"):
+                if s and s["state"] == "invalid":
+                    st.warning("검사를 모두 통과하는 정규식을 만들지 못했습니다. 다시 받아 보세요.")
+                if s and s["state"] == "rejected":
+                    st.caption("NO로 거절한 제안입니다.")
+                if st.button("정규식 제안 받기", key=f"gen-{item['event_id']}"):
+                    with st.spinner("AI가 정규식을 만들고 서버가 검사하는 중…"), shown_errors():
+                        client().post(f"/api/v1/lab/rule-suggestions/{item['event_id']}/generate")
+                    st.rerun()
+                if not s or s["state"] == "rejected":
+                    continue
+            st.code(s["pattern"] or "(없음)", language=None)
+            if s["explanation"]:
+                st.caption(f"설명: {s['explanation']} · 분류 {s['category']}")
+            for key, label in CHECK_NAMES.items():
+                st.write(("✅ " if s["checks"].get(key) else "❌ ") + label)
+            if s["benign_hits"]:
+                st.caption("걸리는 정상 질문: " + " / ".join(s["benign_hits"][:5]))
+            if s["state"] == "pending":
+                yes, no, _ = st.columns([1, 1, 4])
+                yes.button("YES · 규칙 추가", key=f"yes-{item['event_id']}", type="primary",
+                           on_click=decide, args=(item["event_id"], True))  # fmt: skip
+                no.button("NO", key=f"no-{item['event_id']}", on_click=decide, args=(item["event_id"], False))
+            elif s["state"] == "accepted":
+                st.success(f"채택됨: {s['rule_id']} → draft {s['draft_label']}")
+
+
 # ------------------------------------------------------------------------------ main
 
 PAGES = {"대시보드": dashboard, "감사 상세": event_detail, "경보": alerts_page, "규칙·정책": rules_page,
@@ -664,6 +723,7 @@ else:
         st.success("🛡️ 보안 보호 활성")
         if client().user["role"] == "admin" and lab_available():
             PAGES["LAB ON/OFF 비교"] = lab_page
+            PAGES["정규식 제안"] = suggestions_page
         page = st.radio("메뉴", list(PAGES), label_visibility="collapsed", key="page")
         if st.button("모든 기기 로그아웃"):
             client().logout()

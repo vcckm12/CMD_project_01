@@ -170,6 +170,8 @@ class FakeModel:
         self.judge = {"input": "SAFE", "context": "SAFE", "tool": "SAFE", "output": "SAFE"}
         self.chat_calls: list[dict] = []
         self.judge_calls: list[dict] = []
+        self.suggestions: list[dict] = []  # replies to the lab regex-suggestion prompt
+        self.suggest_calls: list[dict] = []
         self.prompt_eval_count = 100
 
     def handler(self, request):
@@ -180,6 +182,10 @@ class FakeModel:
         if request.url.path == "/api/tags":
             return httpx.Response(200, json={"models": [{"name": "qwen3:8b", "digest": "d" * 64}]})
         body = _json.loads(request.content)
+        if body.get("format") == "json" and body["messages"][0]["content"].startswith("You write detection rules"):
+            self.suggest_calls.append(body)
+            reply = self.suggestions.pop(0) if self.suggestions else {}
+            return httpx.Response(200, json={"message": {"content": _json.dumps(reply)}})
         if body.get("format") == "json":
             self.judge_calls.append(body)
             system = body["messages"][0]["content"]
