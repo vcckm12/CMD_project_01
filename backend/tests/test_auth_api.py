@@ -4,27 +4,15 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import uuid
 
 import jwt
-import psycopg
 import pytest
 
-from tests.conftest import OPS, PASSWORD, SHOP, _dsn, bearer, new_email, register_and_login
+from tests.conftest import OPS, PASSWORD, SHOP, bearer, new_email, outbox_payloads, register_and_login, superuser
 
 WHOAMI = "/api/v1/_test/whoami"
 TOKENS = "/api/v1/auth/client-tokens"
-
-
-def superuser():
-    return psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True)
-
-
-def outbox_payloads(request_id: str) -> list[dict]:
-    with superuser() as conn:
-        rows = conn.execute("SELECT payload FROM audit.outbox WHERE payload->>'request_id' = %s", (request_id,))
-        return [r[0] for r in rows.fetchall()]
 
 
 # ------------------------------------------------------------------ register

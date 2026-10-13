@@ -10,15 +10,11 @@ from psycopg.types.json import Jsonb
 
 from app.audit.outbox import AuditEnvelope, RuleHit, ToolExecution
 from app.workers import audit_worker, scheduler
-from tests.conftest import _dsn
+from tests.conftest import _dsn, superuser
 
 
 def run(coro):
     return asyncio.run(coro)
-
-
-def superuser():
-    return psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True)
 
 
 def login(role: str, env: str) -> str:

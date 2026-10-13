@@ -15,28 +15,27 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
-import os
 import statistics
 import sys
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "backend"))
-sys.path.insert(0, str(ROOT / "scripts"))
+from evalkit import (
+    MODEL,
+    ROOT,
+    GuardrailTimeout,
+    GuardrailUnavailable,
+    InferenceBusy,
+    InputMessage,
+    Settings,
+    default_snapshot,
+    model_client,
+    pipeline,
+)
+from validate_testset import QUOTAS, validate
 
-from app.config import Settings  # noqa: E402
-from app.guardrails.alerts import AlertMonitor  # noqa: E402
-from app.guardrails.input_guardrail import InputGuardrailEngine, InputMessage  # noqa: E402
-from app.guardrails.judge import SafetyJudge  # noqa: E402
-from app.guardrails.output_guardrail import OutputGuardrailEngine  # noqa: E402
-from app.guardrails.pipeline import GuardrailPipeline, GuardrailUnavailable  # noqa: E402
-from app.guardrails.ruleset import default_snapshot  # noqa: E402
-from app.guardrails.types import GuardrailTimeout  # noqa: E402
-from app.services.ollama import InferenceBusy, OllamaClient  # noqa: E402
-from validate_testset import QUOTAS, validate  # noqa: E402
+JUDGE_TIMEOUT = Settings.model_fields["judge_timeout_seconds"].default
 
 
 def pct(n: int, d: int) -> str:
@@ -44,42 +43,25 @@ def pct(n: int, d: int) -> str:
 
 
 async def measure(rows: list[dict]) -> list[dict]:
-    client = OllamaClient(os.environ.get("OLLAMA_BASE_URL", "http://10.10.70.65:11434"),
-                          os.environ.get("OLLAMA_MODEL", "qwen3:8b"), queue_wait_s=300)  # fmt: skip
-    judge = SafetyJudge(
-        client, timeout_s=Settings.model_fields["judge_timeout_seconds"].default
-    )
-    pipeline = GuardrailPipeline(
-        InputGuardrailEngine(),
-        OutputGuardrailEngine(),
-        judge,
-        AlertMonitor(None, b"k" * 32),
-    )
-    snapshot = default_snapshot()
+    p, snapshot = pipeline(model_client(), JUDGE_TIMEOUT), default_snapshot()
     out = []
     for i, r in enumerate(rows, 1):
-        messages = (
-            [InputMessage("system", r["context"])] if r.get("context") else []
-        ) + [InputMessage("user", r["text"])]
+        messages = ([InputMessage("system", r["context"])] if r.get("context") else []) + [
+            InputMessage("user", r["text"])
+        ]
         started = time.perf_counter()
         result = {"id": r["id"], "label": r["label"], "category": r["category"],
                   "technique": r.get("technique", ""), "lang": r["lang"]}  # fmt: skip
         for _attempt in range(2):  # one retry when the judge fails
             try:
-                inspection, timing = await pipeline.check_input(
-                    messages, None, snapshot
-                )
+                inspection, timing = await p.check_input(messages, None, snapshot)
                 layers = timing.layers
                 result |= {
                     "rules": layers.get("input_rules", ("pass", 0))[0],
                     "judge": layers.get("input_judge", ("skip", 0))[0],
                     "final": "block" if not inspection.allowed else "pass",
                     "judge_ms": round(timing.judge_ms),
-                    "rule_ids": " ".join(
-                        sorted(
-                            {h.rule_id for h in inspection.hits if h.action == "block"}
-                        )
-                    ),
+                    "rule_ids": " ".join(sorted({h.rule_id for h in inspection.hits if h.action == "block"})),
                 }
                 break
             except (GuardrailUnavailable, GuardrailTimeout, InferenceBusy) as exc:
@@ -127,8 +109,7 @@ def report(results: list[dict], digest: str, started: datetime) -> str:
         "# 독립 시험셋 측정 결과",
         "",
         f"- 측정 시각(UTC): {started:%Y-%m-%d %H:%M} · 코드 {git_commit()} · 시험셋 sha256 `{digest}`",
-        f"- 모델 {os.environ.get('OLLAMA_MODEL', 'qwen3:8b')} · AI 판별 제한 시간 "
-        f"{Settings.model_fields['judge_timeout_seconds'].default}초 · 규칙 출하 기본 룰셋 · 입력 단계만 측정",
+        f"- 모델 {MODEL} · AI 판별 제한 시간 {JUDGE_TIMEOUT}초 · 규칙 출하 기본 룰셋 · 입력 단계만 측정",
         f"- 판별 실패(재시도 후): {len(errors)}건 — 아래 비율에서는 차단되지 않은 것으로 셈",
         "",
         "## 요약",
@@ -145,9 +126,7 @@ def report(results: list[dict], digest: str, started: datetime) -> str:
     ]
     for category in QUOTAS["attack"]:
         rows = [r for r in attacks if r["category"] == category]
-        lines.append(
-            f"| {category} | {rate(rows, 'rules')} | {rate(rows, 'judge')} | {rate(rows, 'final')} |"
-        )
+        lines.append(f"| {category} | {rate(rows, 'rules')} | {rate(rows, 'judge')} | {rate(rows, 'final')} |")
     lines += [
         "",
         "## 공격 기법별 (규칙 + AI)",
@@ -196,35 +175,24 @@ def main() -> int:
         action="store_true",
         help="dry run of this script on an incomplete set",
     )
-    parser.add_argument(
-        "--force", action="store_true", help="measure a set that was already measured"
-    )
+    parser.add_argument("--force", action="store_true", help="measure a set that was already measured")
     args = parser.parse_args()
     folder = ROOT / args.folder
     errors, _, counts, digest, rows = validate(folder)
-    complete = not errors and all(
-        counts[(lbl, c)] >= n for lbl, q in QUOTAS.items() for c, n in q.items()
-    )
+    complete = not errors and all(counts[(lbl, c)] >= n for lbl, q in QUOTAS.items() for c, n in q.items())
     if not complete and not args.allow_partial:
-        print(
-            "시험셋이 검사를 통과하지 않았습니다: python scripts/validate_testset.py "
-            + args.folder
-        )
+        print("시험셋이 검사를 통과하지 않았습니다: python scripts/validate_testset.py " + args.folder)
         return 1
     results_dir = folder / "results"
     results_dir.mkdir(exist_ok=True)
     if any(digest[:16] in p.name for p in results_dir.iterdir()) and not args.force:
-        print(
-            f"이미 측정한 시험셋입니다(sha256 {digest[:16]}). 독립 시험셋은 한 번만 측정합니다."
-        )
+        print(f"이미 측정한 시험셋입니다(sha256 {digest[:16]}). 독립 시험셋은 한 번만 측정합니다.")
         return 1
     started = datetime.now(UTC)
     print(f"측정 시작: {len(rows)}건 (실모델, 수십 분 걸릴 수 있음)", flush=True)
     results = asyncio.run(measure(rows))
     stem = f"{started:%Y%m%d-%H%M}_{digest[:16]}" + ("_partial" if not complete else "")
-    (results_dir / f"{stem}.md").write_text(
-        report(results, digest, started), encoding="utf-8"
-    )
+    (results_dir / f"{stem}.md").write_text(report(results, digest, started), encoding="utf-8")
     with (results_dir / f"{stem}.csv").open("w", encoding="utf-8-sig", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(results[0]))
         writer.writeheader()

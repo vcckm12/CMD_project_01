@@ -1,19 +1,11 @@
 """AUDIT-01~04, alerts and RULE-01~07 (DES-005 §2.4, DES-006 §6). Maps to T-18, T-20, T-21, T-30."""
 
-import asyncio
-import os
 import uuid
 
-import psycopg
 import pytest
 from argon2 import PasswordHasher
 
-from app.workers import audit_worker
-from tests.conftest import OPS, PASSWORD, _dsn, bearer, new_email, register_and_login
-
-
-def superuser():
-    return psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True)
+from tests.conftest import OPS, PASSWORD, bearer, drain, new_email, register_and_login, superuser
 
 
 def staff(client, role: str) -> str:
@@ -25,19 +17,6 @@ def staff(client, role: str) -> str:
         )
     r = client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD}, headers=OPS)
     return r.json()["data"]["access_token"]
-
-
-def drain():
-    async def go():
-        async with await psycopg.AsyncConnection.connect(
-            _dsn("ag_audit_worker", os.environ["TEST_AUDIT_WORKER_PASSWORD"])
-        ) as conn:
-            for _ in range(20):
-                stats = await audit_worker.drain_once(conn)
-                if not any(stats.values()):
-                    return
-
-    asyncio.run(go())
 
 
 @pytest.fixture

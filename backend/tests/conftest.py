@@ -255,3 +255,38 @@ def register_and_login(client, headers=SHOP):
 
 def bearer(token: str, base=SHOP) -> dict[str, str]:
     return {**base, "Authorization": f"Bearer {token}"}
+
+
+# ------------------------------------------------------------------ shared DB helpers
+
+
+def superuser() -> psycopg.Connection:
+    return psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True)
+
+
+def outbox_payloads(request_id: str) -> list[dict]:
+    with superuser() as conn:
+        rows = conn.execute("SELECT payload FROM audit.outbox WHERE payload->>'request_id' = %s", (request_id,))
+        return [r[0] for r in rows.fetchall()]
+
+
+def outbox(request_id: str) -> dict | None:
+    payloads = outbox_payloads(request_id)
+    return payloads[0] if payloads else None
+
+
+def drain() -> None:
+    """Move every pending outbox row into the audit tables, as the audit worker does."""
+    import asyncio
+
+    from app.workers import audit_worker
+
+    async def go():
+        async with await psycopg.AsyncConnection.connect(
+            _dsn("ag_audit_worker", os.environ["TEST_AUDIT_WORKER_PASSWORD"])
+        ) as conn:
+            for _ in range(20):
+                if not any((await audit_worker.drain_once(conn)).values()):
+                    return
+
+    asyncio.run(go())

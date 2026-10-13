@@ -7,6 +7,7 @@ unsafe_allow_html. Each user's API client lives in st.session_state only.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -60,6 +61,21 @@ def fail(err: Exception) -> None:
         st.code("\n".join(err.details))
 
 
+class _Call:
+    failed = False
+
+
+@contextmanager
+def shown_errors():
+    """API/network failures are shown on the page instead of crashing it; `.failed` tells the caller."""
+    call = _Call()
+    try:
+        yield call
+    except Exception as err:  # noqa: BLE001
+        call.failed = True
+        fail(err)
+
+
 # ---------------------------------------------------------------------------- SCR-O01 login
 
 
@@ -70,11 +86,9 @@ def login_page() -> None:
         email = st.text_input("이메일")
         password = st.text_input("비밀번호", type="password")
         if st.form_submit_button("로그인", type="primary"):
-            try:
+            with shown_errors():
                 client().login(email.strip(), password)
                 st.rerun()
-            except Exception as err:  # noqa: BLE001
-                fail(err)
 
 
 # ------------------------------------------------------------------------- shared filters
@@ -121,11 +135,10 @@ def dashboard() -> None:
 
     @st.fragment(run_every=10)
     def live_stats() -> None:
-        try:
+        with shown_errors() as call:
             s = client().get("/api/v1/audit/stats", **{"from": start, "to": end, "session_id": session})
             ready = client().request("GET", "/api/v1/health/ready")["data"]
-        except Exception as err:  # noqa: BLE001
-            fail(err)
+        if call.failed:
             return
         cols = st.columns(6)
         with cols[0].container(border=True):
@@ -185,11 +198,10 @@ def events_table(start: str, end: str, session: str | None, status: str | None) 
 @st.fragment(run_every=10)
 def _events_list(start: str, end: str, session: str | None, status: str | None) -> None:
     def fetch(cursor: str | None) -> dict | None:
-        try:
+        with shown_errors() as call:
             return client().get("/api/v1/audit/events", **{"from": start, "to": end, "session_id": session,
                                                            "status": status, "cursor": cursor, "limit": 50})  # fmt: skip
-        except Exception as err:  # noqa: BLE001
-            fail(err)
+        if call.failed:
             return None
 
     c1, c2 = st.columns([1, 5])
@@ -228,10 +240,9 @@ def event_detail() -> None:
     event_id = st.text_input("event_id").strip()
     if not event_id:
         return
-    try:
+    with shown_errors() as call:
         e = client().get(f"/api/v1/audit/events/{event_id}")
-    except Exception as err:  # noqa: BLE001
-        fail(err)
+    if call.failed:
         return
     meta = {k: e[k] for k in ("event_id", "request_id", "session_id", "actor_id", "source", "api_path", "model",
                               "status", "stage", "ruleset_version")}  # fmt: skip
@@ -341,10 +352,9 @@ def alerts_page() -> None:
     st.header("경보")
     st.caption("judge_unavailable: 모델 서버 점검 · suspicious_input_repeat: 같은 입력 반복 실패(지연 공격 의심) · "
                "outbox_dead: 감사 적재 실패. 확인 처리는 상황을 조치했다는 기록이며 원문은 제공되지 않습니다.")  # fmt: skip
-    try:
+    with shown_errors() as call:
         open_alerts = client().get("/api/v1/alerts")["items"]
-    except Exception as err:  # noqa: BLE001
-        fail(err)
+    if call.failed:
         return
     if not open_alerts:
         st.success("미확인 경보가 없습니다.")
@@ -354,18 +364,14 @@ def alerts_page() -> None:
                      f"최초 {kst(a['first_seen_at'])} · 최근 {kst(a['last_seen_at'])}")  # fmt: skip
             st.text(a["detail"] + (f" · 입력 지문 {a['fingerprint']}" if a["fingerprint"] else ""))
             if st.button("확인 처리", key=f"ack-{a['id']}"):
-                try:
+                with shown_errors():
                     client().post(f"/api/v1/alerts/{a['id']}/acknowledge")
                     st.rerun()
-                except Exception as err:  # noqa: BLE001
-                    fail(err)
     with st.expander("확인된 경보"):
-        try:
+        with shown_errors():
             done = client().get("/api/v1/alerts", state="acknowledged")["items"]
             st.dataframe(pd.DataFrame([{"kind": a["kind"], "횟수": a["occurrences"], "확인": kst(a["acknowledged_at"]),
                                         "확인자": a["acknowledged_by"]} for a in done]), hide_index=True)  # fmt: skip
-        except Exception as err:  # noqa: BLE001
-            fail(err)
 
 
 # ---------------------------------------------------------------------- SCR-O04 rules
@@ -375,10 +381,9 @@ def rules_page() -> None:
     st.header("규칙·정책")
     st.info("🛡️ 가드레일 활성은 운영에서 변경할 수 없는 고정값입니다.")
     admin = client().user["role"] == "admin"
-    try:
+    with shown_errors() as call:
         listing = client().get("/api/v1/rulesets")
-    except Exception as err:  # noqa: BLE001
-        fail(err)
+    if call.failed:
         return
     sets = listing["items"]
     active = next((s for s in sets if s["state"] == "active"), None)
@@ -414,22 +419,18 @@ def rules_page() -> None:
             except (ValueError, ApiFailure) as err:
                 fail(err)
         if c2.button("검증"):
-            try:
+            with shown_errors():
                 client().post(f"/api/v1/rulesets/{choice['id']}/validate")
                 st.success("검증을 통과했습니다. 이제 내용은 변경할 수 없습니다.")
                 st.rerun()
-            except Exception as err:  # noqa: BLE001
-                fail(err)
     else:
         with st.form("clone"):
             label = st.text_input("새 draft 이름", value=f"{choice['version_label']}-next")
             if st.form_submit_button("복제하여 draft 만들기"):
-                try:
+                with shown_errors():
                     client().post("/api/v1/rulesets", {"parent_id": choice["id"], "version_label": label})
                     st.success("draft를 만들었습니다.")
                     st.rerun()
-                except Exception as err:  # noqa: BLE001
-                    fail(err)
     if detail["state"] in ("validated", "retired"):
         action = "publish" if detail["state"] == "validated" else "rollback"
         with st.form("publish"):
@@ -441,13 +442,11 @@ def rules_page() -> None:
                 if not sure:
                     st.warning("확인란을 선택해 주세요.")
                 else:
-                    try:
+                    with shown_errors():
                         client().post(f"/api/v1/rulesets/{choice['id']}/{action}",
                                       {"password": password, "expected_active_id": (active or {}).get("id")})  # fmt: skip
                         st.success("적용했습니다.")
                         st.rerun()
-                    except Exception as err:  # noqa: BLE001
-                        fail(err)
 
 
 # ---------------------------------------------------------------------- SCR-O05 report
@@ -461,24 +460,20 @@ def report_page() -> None:
         or None
     )
     if st.button("미리보기"):
-        try:
+        with shown_errors():
             st.session_state.report_preview = client().get("/api/v1/audit/stats", **{"from": start, "to": end,
                                                                                     "session_id": session})  # fmt: skip
-        except Exception as err:  # noqa: BLE001
-            fail(err)
     preview = st.session_state.get("report_preview")
     if preview:
         st.write(f"이벤트 {preview['total']}건 · 적재 지연 {preview['ingestion_lag_seconds']}초 · 기준 {kst(preview['as_of'])}")
         st.dataframe(pd.DataFrame([preview["status_counts"]]), hide_index=True)
         if st.button("PDF 생성"):
-            try:
+            with shown_errors():
                 pdf = client().request("GET", "/api/v1/audit/report", params={k: v for k, v in
                                        {"from": start, "to": end, "session_id": session, "format": "pdf"}.items() if v},
                                        raw=True)  # fmt: skip
                 st.download_button("PDF 다운로드", pdf, file_name=f"security-report-{datetime.now(KST):%Y%m%d}.pdf",
                                    mime="application/pdf")  # fmt: skip
-            except Exception as err:  # noqa: BLE001
-                fail(err)
     st.caption("합성 시험의 방어율과 운영 이벤트의 차단 비율은 같은 값이 아닙니다.")
 
 
@@ -489,23 +484,20 @@ def test_chat() -> None:
     st.header("합성 검증 챗")
     st.warning("운영 보안 보호 활성 상태입니다. 실제 고객 주문·개인정보·키를 입력하지 말고 합성 데이터만 사용하세요.")
     if st.button("새 검증 세션") or "test_session" not in st.session_state:
-        try:
+        with shown_errors() as call:
             st.session_state.test_session = client().post("/api/v1/sessions")["data"]["session_id"]
             st.session_state.test_log = []
-        except Exception as err:  # noqa: BLE001
-            fail(err)
+        if call.failed:
             return
     with st.form("test-chat", clear_on_submit=True):
         prompt = st.text_area("질의", max_chars=8000)
         sent = st.form_submit_button("검증", type="primary")
     if sent and prompt.strip():
         with st.spinner("검사·추론 중…"):
-            try:
+            with shown_errors():
                 body = client().request("POST", "/api/v1/chat/completions",
                                         json={"session_id": st.session_state.test_session, "prompt": prompt})  # fmt: skip
                 st.session_state.test_log.insert(0, (prompt, body))
-            except Exception as err:  # noqa: BLE001
-                fail(err)
     for prompt, body in st.session_state.get("test_log", []):
         with st.container(border=True):
             st.text(f"질의: {prompt}")
@@ -567,18 +559,15 @@ def single_compare() -> None:
 
 
 def start_compare(body: dict) -> None:
-    try:
+    with shown_errors():
         st.session_state.lab_compare = client().post("/api/v1/lab/compare", body)["data"]["run_id"]
-    except Exception as err:  # noqa: BLE001
-        fail(err)
 
 
 @st.fragment(run_every=3)
 def compare_view(run_id: str) -> None:
-    try:
+    with shown_errors() as call:
         run = client().get(f"/api/v1/lab/ab-runs/{run_id}")
-    except Exception as err:  # noqa: BLE001
-        fail(err)
+    if call.failed:
         return
     if run["state"] == "running":
         st.info("실제 모델로 OFF → ON 순서로 실행 중입니다(수십 초 걸릴 수 있음)…")
@@ -623,11 +612,9 @@ def lab_page() -> None:
         dataset = c1.text_input("시험셋", "lab_ab_v1")
         limit = c2.number_input("최대 사례 수 (0 = 전체)", min_value=0, max_value=200, value=0)
         if st.form_submit_button("A/B 실행", type="primary"):
-            try:
+            with shown_errors():
                 body = {"dataset": dataset} | ({"limit": int(limit)} if limit else {})
                 st.session_state.lab_run = client().post("/api/v1/lab/ab-runs", body)["data"]["run_id"]
-            except Exception as err:  # noqa: BLE001
-                fail(err)
     runs = [r for r in client().get("/api/v1/lab/status")["runs"] if not r["dataset"].startswith(("event:", "free"))]
     if not runs:
         st.info("아직 실행한 비교가 없습니다.")

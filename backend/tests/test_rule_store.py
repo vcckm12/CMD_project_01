@@ -11,7 +11,7 @@ import pytest
 from app.guardrails import rule_store
 from app.guardrails.rule_cache import RuleCache
 from app.guardrails.ruleset import DEFAULT_RULES, RulesetInvalid
-from tests.conftest import _dsn
+from tests.conftest import _dsn, superuser
 
 
 def run(coro):
@@ -20,10 +20,6 @@ def run(coro):
 
 async def rules_conn() -> psycopg.AsyncConnection:
     return await psycopg.AsyncConnection.connect(_dsn("ag_rules", os.environ["TEST_RULES_PASSWORD"]))
-
-
-def superuser():
-    return psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True)
 
 
 @pytest.fixture(scope="module")

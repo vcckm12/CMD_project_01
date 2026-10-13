@@ -2,29 +2,15 @@
 T-07·T-13·T-17 (audit failure) and T-29 at the API level. All data is synthetic."""
 
 import json
-import os
 import uuid
 
 import httpx
-import psycopg
 import pytest
 
-from tests.conftest import OPS, PASSWORD, _dsn, bearer, new_email, register_and_login
+from tests.conftest import OPS, PASSWORD, bearer, new_email, outbox, register_and_login, superuser
 
 CHAT = "/api/v1/chat/completions"
 COMPAT = "/v1/chat/completions"
-
-
-def superuser():
-    return psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True)
-
-
-def outbox(request_id: str) -> dict:
-    with superuser() as conn:
-        row = conn.execute(
-            "SELECT payload FROM audit.outbox WHERE payload->>'request_id' = %s", (request_id,)
-        ).fetchone()
-    return row[0] if row else None
 
 
 @pytest.fixture

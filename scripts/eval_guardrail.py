@@ -9,27 +9,15 @@ Usage (from the repo root):
 
 from __future__ import annotations
 
-import json
 import statistics
 import sys
 from collections import defaultdict
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
-
-from app.guardrails.input_guardrail import InputGuardrailEngine, InputMessage  # noqa: E402
-from app.guardrails.ruleset import default_snapshot  # noqa: E402
-
-DATASETS = Path(__file__).resolve().parents[1] / "datasets"
+from evalkit import InputGuardrailEngine, InputMessage, default_snapshot, read_jsonl
 
 
 def load(name: str, text_key: str, label_key: str | None) -> list[tuple[str, str]]:
-    rows = []
-    for line in (DATASETS / name).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            row = json.loads(line)
-            rows.append((row.get(label_key, "BENIGN") if label_key else "BENIGN", row[text_key]))
-    return rows
+    return [(r.get(label_key, "BENIGN") if label_key else "BENIGN", r[text_key]) for r in read_jsonl(name)]
 
 
 def main() -> int:

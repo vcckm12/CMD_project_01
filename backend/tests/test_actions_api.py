@@ -1,20 +1,14 @@
 """ACTION-01~04 and chat-proposed changes (DES-002 §6, DES-006 §5.3). Maps to T-14~T-17."""
 
-import os
 import threading
 import time
 import uuid
 
-import psycopg
 import pytest
 
-from tests.conftest import _dsn, bearer, register_and_login
+from tests.conftest import bearer, outbox, register_and_login, superuser
 
 ACTIONS = "/api/v1/actions"
-
-
-def superuser():
-    return psycopg.connect(_dsn("postgres", os.environ["TEST_SUPERUSER_PASSWORD"]), autocommit=True)
 
 
 def new_product(price=10000, stock=10, name="테스트 셔츠") -> str:
@@ -35,14 +29,6 @@ def grant_coupon(user_id: str, discount=3000, minimum=15000) -> str:
         return str(conn.execute(
             "INSERT INTO commerce.user_coupons (user_id, coupon_id) VALUES (%s, %s) RETURNING id", (user_id, coupon)
         ).fetchone()[0])  # fmt: skip
-
-
-def outbox_status(request_id: str) -> str | None:
-    with superuser() as conn:
-        row = conn.execute(
-            "SELECT payload->>'status' FROM audit.outbox WHERE payload->>'request_id' = %s", (request_id,)
-        ).fetchone()
-    return row[0] if row else None
 
 
 @pytest.fixture
@@ -82,7 +68,7 @@ def test_propose_then_confirm_once(client, shopper):
     assert data["state"] == "pending" and data["confirmation_url"].endswith(data["action_id"])
     assert data["preview"]["quantity_before"] == 0 and data["preview"]["total_after"] == 24000
     assert cart(client, shopper)["items"] == []  # nothing changes before confirmation
-    assert outbox_status(r.headers["x-request-id"]) == "confirmation_required"
+    assert outbox(r.headers["x-request-id"])["status"] == "confirmation_required"
 
     key = str(uuid.uuid4())
     done = confirm(client, shopper, data["action_id"], key)
@@ -90,7 +76,7 @@ def test_propose_then_confirm_once(client, shopper):
     assert done.json()["data"]["result"]["total_krw"] == 24000
     after = cart(client, shopper)
     assert after["version"] == 1 and after["items"][0]["quantity"] == 2
-    assert outbox_status(done.headers["x-request-id"]) == "success"
+    assert outbox(done.headers["x-request-id"])["status"] == "success"
 
     # Replays (same or new key, lost response) return the stored result; the cart does not change again.
     assert confirm(client, shopper, data["action_id"], key).json()["data"]["result"] == done.json()["data"]["result"]

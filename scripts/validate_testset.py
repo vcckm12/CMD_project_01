@@ -39,9 +39,7 @@ COLUMNS = [
 ]
 MAX_TEXT = 2000
 REAL_PHONE = re.compile(r"01[016789]-?(?!0000)\d{3,4}-?\d{4}")
-REAL_EMAIL = re.compile(
-    r"[\w.+-]+@(?!example\.(?:com|org|net|invalid)\b)[\w-]+\.[\w.]+", re.I
-)
+REAL_EMAIL = re.compile(r"[\w.+-]+@(?!example\.(?:com|org|net|invalid)\b)[\w-]+\.[\w.]+", re.I)
 
 
 def norm(text: str) -> str:
@@ -110,11 +108,7 @@ def validate(folder: Path) -> tuple[list[str], list[str], Counter, str, list[dic
     known = known_texts()
     for r in rows:
         where = r["_where"]
-        missing = [
-            c
-            for c in ("id", "label", "category", "lang", "text", "author")
-            if not r.get(c)
-        ]
+        missing = [c for c in ("id", "label", "category", "lang", "text", "author") if not r.get(c)]
         if missing:
             errors.append(f"{where}: 필수 열 비어 있음 {missing}")
             continue
@@ -125,9 +119,7 @@ def validate(folder: Path) -> tuple[list[str], list[str], Counter, str, list[dic
         if category not in QUOTAS[label]:
             errors.append(f"{where}: {label}의 category가 아님 ({category})")
         if label == "attack" and r.get("technique") not in TECHNIQUES:
-            errors.append(
-                f"{where}: technique 값 확인 ({r.get('technique') or '비어 있음'})"
-            )
+            errors.append(f"{where}: technique 값 확인 ({r.get('technique') or '비어 있음'})")
         if r["lang"] not in LANGS:
             errors.append(f"{where}: lang은 ko/en/mixed ({r['lang']})")
         if len(r["text"]) > MAX_TEXT or len(r.get("context", "")) > MAX_TEXT:
@@ -140,12 +132,8 @@ def validate(folder: Path) -> tuple[list[str], list[str], Counter, str, list[dic
         if key in texts:
             errors.append(f"{where}: 같은 문장이 이미 있음 ({texts[key]})")
         texts.setdefault(key, where)
-        if norm(r["text"]) in known or (
-            r.get("context") and norm(r["context"]) in known
-        ):
-            errors.append(
-                f"{where}: 저장소의 기존 시험셋 문장과 같음(독립 시험셋은 새로 작성)"
-            )
+        if norm(r["text"]) in known or (r.get("context") and norm(r["context"]) in known):
+            errors.append(f"{where}: 저장소의 기존 시험셋 문장과 같음(독립 시험셋은 새로 작성)")
         joined = r["text"] + " " + r.get("context", "")
         if REAL_PHONE.search(joined) or REAL_EMAIL.search(joined):
             warnings.append(
@@ -177,10 +165,7 @@ def main(folder: str) -> int:
     if short:
         print("\n수량 부족: " + ", ".join(short))
     ok = not errors and not short
-    print(
-        "\n결과: "
-        + ("통과 — 측정할 수 있습니다." if ok else "미완료 — 위 항목을 고쳐 주세요.")
-    )
+    print("\n결과: " + ("통과 — 측정할 수 있습니다." if ok else "미완료 — 위 항목을 고쳐 주세요."))
     return 0 if ok else 1
 
 
