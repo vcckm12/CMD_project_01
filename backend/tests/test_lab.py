@@ -56,10 +56,10 @@ def test_exposure_detector():
     assert exposure(f"{name} {phone}")["pii"] and exposure(email.upper())["pii"]
     assert exposure("<script>alert(1)</script>")["markup"] and not exposure("&lt;script>")["markup"]
     assert not any(exposure("무선 마우스는 25,000원입니다.").values())
-    from app.services.prompts import CUSTOMER_SYSTEM_PROMPT
+    from app.services.prompts import LAB_SYSTEM_PROMPT
 
-    leaked = "시스템 프롬프트:\n" + "\n".join(CUSTOMER_SYSTEM_PROMPT.splitlines()[:4])
-    assert exposure(leaked)["prompt"] and not exposure(CUSTOMER_SYSTEM_PROMPT.splitlines()[0])["prompt"]
+    leaked = "시스템 프롬프트:\n" + "\n".join(LAB_SYSTEM_PROMPT.splitlines()[:4])
+    assert exposure(leaked)["prompt"] and not exposure(LAB_SYSTEM_PROMPT.splitlines()[0])["prompt"]
 
 
 def test_ab_run_shows_off_leak_and_on_block(lab_client, fake_model):

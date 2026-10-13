@@ -121,17 +121,25 @@ def alert_banner() -> None:
 # ---------------------------------------------------------------------- SCR-O02 dashboard
 
 
+def open_conversation(session_id: str) -> None:
+    st.session_state.update({"page": "대시보드", "dash-session": session_id})
+
+
+def open_event() -> None:
+    event_id = st.session_state.get("dash-jump", "").strip()
+    if event_id:
+        st.session_state.update({"page": "감사 상세", "detail-event": event_id, "dash-jump": ""})
+
+
 def dashboard() -> None:
     st.header("관제 대시보드")
     start, end = period_filter("dash")
-    c1, c2 = st.columns(2)
-    session = (
-        c1.text_input(
-            "세션 ID (선택)", key="dash-session", help="이벤트 목록의 '세션 ID' 칸 값입니다. event_id와 다릅니다."
-        ).strip()
-        or None
-    )
+    c1, c2, c3 = st.columns([2, 1, 2])
+    help_session = ("한 대화의 모든 요청을 시간순으로 봅니다. 여러 턴에 나눠 조금씩 캐내는 공격은 한 건씩 보면 평범해 "
+                    "대화 전체를 봐야 드러납니다. 이벤트 목록의 '대화(세션) ID' 값이며 event_id와 다릅니다.")  # fmt: skip
+    session = c1.text_input("대화(세션) ID (선택)", key="dash-session", help=help_session).strip() or None
     status = c2.selectbox("상태", ["(전체)", *STATUSES], key="dash-status")
+    c3.text_input("event_id로 바로 보기", key="dash-jump", on_change=open_event, placeholder="붙여 넣고 Enter → 감사 상세")
 
     @st.fragment(run_every=10)
     def live_stats() -> None:
@@ -227,9 +235,9 @@ def _events_list(start: str, end: str, session: str | None, status: str | None) 
         return
     frame = pd.DataFrame([{"시각(KST)": kst(e["occurred_at"]), "source": e["source"], "status": e["status"],
                            "stage": e["stage"], "total_ms": e["total_ms"], "요약": e["summary_redacted"],
-                           "event_id": e["event_id"], "세션 ID": e["session_id"] or ""} for e in rows])  # fmt: skip
+                           "event_id": e["event_id"], "대화(세션) ID": e["session_id"] or ""} for e in rows])  # fmt: skip
     st.dataframe(frame, hide_index=True, use_container_width=True)
-    st.caption("event_id는 감사 상세 메뉴에, 세션 ID는 위 '세션 ID' 필터나 보고서에 넣으면 그 대화의 이벤트만 봅니다.")
+    st.caption("event_id → 위 'event_id로 바로 보기'(감사 상세) · 대화(세션) ID → 위 필터에 넣으면 그 대화 전체를 봅니다.")
 
 
 # ----------------------------------------------------------------------- SCR-O03 detail
@@ -237,7 +245,7 @@ def _events_list(start: str, end: str, session: str | None, status: str | None) 
 
 def event_detail() -> None:
     st.header("감사 이벤트 상세")
-    event_id = st.text_input("event_id").strip()
+    event_id = st.text_input("event_id", key="detail-event").strip()
     if not event_id:
         return
     with shown_errors() as call:
@@ -248,6 +256,9 @@ def event_detail() -> None:
                               "status", "stage", "ruleset_version")}  # fmt: skip
     meta["occurred_at (KST)"] = kst(e["occurred_at"])
     st.table(pd.Series(meta, name="값").astype(str))
+    if e["session_id"]:
+        st.button("💬 이 대화의 다른 이벤트 보기", on_click=open_conversation, args=(e["session_id"],),
+                  help="대시보드에서 같은 대화(세션)의 요청을 시간순으로 봅니다. 여러 턴에 걸친 공격 추적에 씁니다.")  # fmt: skip
     st.write(f"input {e['input_ms']} ms · output {e['output_ms']} ms · total {e['total_ms']} ms")
     st.subheader("마스킹 요약")
     st.text(e["summary_redacted"])
@@ -314,22 +325,6 @@ def layer_breakdown(e: dict) -> None:
             else:
                 who = "AI 판별기만 차단 (규칙은 통과 — 정규식에 없는 공격)"
             st.info(f"{label} 단계: {who}")
-    try:
-        now = datetime.now(UTC)
-        period = {"from": (now - timedelta(days=7)).isoformat(), "to": now.isoformat()}
-        overlap = client().get("/api/v1/audit/stats", **period).get("layer_overlap", {})
-    except Exception:  # noqa: BLE001 - the period share is supplementary
-        return
-    st.markdown("**최근 7일 차단 건의 계층별 기여** (두 계층이 모두 실행된 건 기준)")
-    for stage, label in STAGE_NAMES.items():
-        o = overlap.get(stage, {})
-        blocked = sum(o.get(k, 0) for k in ("both", "rules_only", "judge_only", "rules_judge_error"))
-        if not blocked:
-            continue
-        cols = st.columns(4)
-        cols[0].metric(f"{label} 차단", blocked)
-        for col, key, name in ((cols[1], "rules_only", "규칙만"), (cols[2], "judge_only", "AI만"), (cols[3], "both", "둘 다")):
-            col.metric(name, f"{o.get(key, 0) / blocked * 100:.0f}%", f"{o.get(key, 0)}건", delta_color="off")
 
 
 def lab_blocked_input(event_id: str, status: str) -> None:
@@ -456,7 +451,11 @@ def report_page() -> None:
     st.header("세션 보고서")
     start, end = period_filter("report", max_days=31)
     session = (
-        st.text_input("세션 ID (선택)", key="report-session", help="대시보드 이벤트 목록의 '세션 ID' 칸 값입니다.").strip()
+        st.text_input(
+            "대화(세션) ID (선택)",
+            key="report-session",
+            help="특정 대화 하나만 보고서로 뽑을 때 씁니다(사고 조사·고객 문의 대응).",
+        ).strip()
         or None
     )
     if st.button("미리보기"):
@@ -665,7 +664,7 @@ else:
         st.success("🛡️ 보안 보호 활성")
         if client().user["role"] == "admin" and lab_available():
             PAGES["LAB ON/OFF 비교"] = lab_page
-        page = st.radio("메뉴", list(PAGES), label_visibility="collapsed")
+        page = st.radio("메뉴", list(PAGES), label_visibility="collapsed", key="page")
         if st.button("모든 기기 로그아웃"):
             client().logout()
             st.session_state.clear()
