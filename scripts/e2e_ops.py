@@ -49,8 +49,8 @@ def main() -> int:
             expect(page.get_by_role("heading", name="계층별 판정·처리 시간 비중")).to_be_visible()
             expect(
                 page.get_by_text(re.compile(r"입력 단계: (규칙과 AI 판별기가 모두 차단|규칙만 차단|AI 판별기만 차단)"))
-            ).to_be_visible()
-            expect(page.get_by_text(re.compile(r"최근 7일 차단 건의 계층별 기여"))).to_be_visible()
+            ).to_be_visible(timeout=30_000)  # renders after the charts
+            expect(page.get_by_role("button", name="💬 이 대화의 다른 이벤트 보기")).to_be_visible()
 
         step("verification chat shows rule ids for a blocked attack")
         page.get_by_text("검증 챗", exact=True).click()
