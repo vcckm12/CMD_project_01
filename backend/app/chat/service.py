@@ -29,7 +29,7 @@ from app.guardrails.types import GuardrailTimeout, Hit, OutputTooLong
 from app.security.auth import AuthContext
 from app.services.ollama import InferenceBusy, InferenceTimeout, InferenceUnavailable
 from app.services.slm import ContextOverflow, SLMService
-from app.shop import actions
+from app.shop import actions, dao
 
 MAX_CONTEXT_MESSAGES = 40
 MAX_STORED_CHARS = 2000
@@ -39,7 +39,9 @@ MAX_STORED_CHARS = 2000
 CLAIMED_CHANGE = re.compile(
     r"변경\s*확인이\s*필요|확인\s*화면에서\s*승인|승인해야\s*적용"
     r"|(?:장바구니|쿠폰)[^.!?\n]{0,40}(?:담았|추가했|넣었|변경했|바꿨|삭제했|뺐|적용했|해제했|넣어\s*드렸|빼\s*드렸)"
+    r"|(?:담아|넣어|추가해|빼|적용해)\s*드(?:릴게|리겠|렸)"  # "담아드릴게요": promises a change without a Tool call
 )
+CART_REQUEST = re.compile(r"(?:장바구니|카트)[^.!?\n]{0,30}(?:담아|넣어|추가)|(?:담아|넣어)\s*(?:줘|주세요|줄래)")
 CLAIMED_CHANGE_RETRY_NOTE = (
     "직전 답변 초안은 변경 도구를 호출하지 않고 장바구니·쿠폰 변경이나 확인 화면을 언급했습니다. 변경이 필요하면 "
     "반드시 변경 도구를 호출하고, 도구를 호출하지 않을 때는 변경이나 확인 화면을 언급하지 마세요."
@@ -124,6 +126,24 @@ def proposal_message(preview: dict) -> str:
         body = "적용된 쿠폰 해제"
     note = " 이 변경으로 현재 쿠폰 조건이 맞지 않아 쿠폰이 해제됩니다." if preview.get("notes") else ""
     return f"장바구니 변경 확인이 필요합니다: {body}, {total}.{note} 확인 화면에서 승인해야 적용됩니다."
+
+
+_COUNT_WORDS = {"한": 1, "하나": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4, "다섯": 5}
+
+
+def _quantity(text: str) -> int:
+    """Quantity from "2개", "두 개", "하나"; 1 when none is given (the confirmation screen shows it)."""
+    if m := re.search(r"(\d{1,2})\s*(?:개|벌|켤레|장)", text):
+        return max(1, min(int(m.group(1)), 99))
+    # One-syllable counts (한/두/세/네) need a unit so "네, 담아줘" or "세트" are not read as numbers.
+    if m := re.search(r"(한|두|세|네)\s*(?:개|벌|켤레|장)|(다섯|하나|둘|셋|넷)", text):
+        return _COUNT_WORDS[m.group(1) or m.group(2)]
+    return 1
+
+
+def _last_user_text(turn: ChatTurn) -> str:
+    users = [m.content for m in turn.inspect if m.role == "user"]
+    return users[-1] if users else ""
 
 
 class UserBudget:
@@ -239,6 +259,7 @@ class ChatService:
             else:
                 slm: SLMService = self.state.slm
                 model_new = turn.model_new
+                asked = CART_REQUEST.search(_last_user_text(turn)) is not None
                 for attempt in range(2):
                     await turn.report("generating", retry=attempt > 0)
                     generated = await slm.generate(
@@ -252,18 +273,25 @@ class ChatService:
                     turn.blocked_tool = generated.blocked_tool
                     prompt_tokens += generated.prompt_tokens
                     completion_tokens += generated.completion_tokens
-                    claimed = (
-                        turn.ctx.role == "customer"
-                        and not generated.blocked_stage
-                        and generated.proposal is None
-                        and CLAIMED_CHANGE.search(generated.content or "") is not None
+                    no_change = (
+                        turn.ctx.role == "customer" and not generated.blocked_stage and generated.proposal is None
                     )
-                    if not claimed:
+                    claimed = no_change and CLAIMED_CHANGE.search(generated.content or "") is not None
+                    # The customer asked to put something in the cart but no change Tool was called (D-45).
+                    missed = no_change and attempt == 0 and asked
+                    if not (claimed or missed):
                         break
                     if attempt == 0:
                         model_new = [*turn.model_new, {"role": "system", "content": CLAIMED_CHANGE_RETRY_NOTE}]
-                    else:
-                        generated.content = CLAIMED_CHANGE_FALLBACK
+                    elif claimed:
+                        generated.content = CLAIMED_CHANGE_FALLBACK  # a second pretend answer is replaced
+                if asked and turn.ctx.role == "customer" and not generated.blocked_stage and not generated.proposal:
+                    # Still no change Tool call: propose from the customer's own words when they name exactly one
+                    # product. The customer confirms it on the confirmation screen like any other proposal.
+                    if (fallback := await self._proposal_from_request(turn)) is not None:
+                        generated.proposal = fallback
+                        rule = snapshot.get("RULE_TOOL_CONFIRMATION_REQUIRED").rule
+                        hits.append(Hit(rule.rule_id, rule.category, rule.stage, rule.action))
                 proposal = generated.proposal
                 if generated.blocked_stage:
                     stage = generated.blocked_stage
@@ -329,6 +357,21 @@ class ChatService:
             total_ms=elapsed_ms(turn.started), prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             action=action,
         )  # fmt: skip
+
+    async def _proposal_from_request(self, turn: ChatTurn) -> actions.Proposal | None:
+        """set_cart_item for the single active product named in the customer's message (D-45), else None."""
+        text = _last_user_text(turn)
+        said = text.replace(" ", "")
+        async with self.state.pools.chat.connection() as conn:
+            named = [p for p in await dao.search_products(conn, "", 100) if p["name"].replace(" ", "") in said]
+            if len(named) != 1:
+                return None
+            try:
+                return await actions.build_proposal(
+                    conn, turn.ctx.user_id, "set_cart_item", {"product_id": named[0]["id"], "quantity": _quantity(text)}
+                )
+            except actions.ActionInvalid:
+                return None
 
     async def _persist(
         self, turn: ChatTurn, snapshot: RuleSnapshot, status: str, stage: str | None, hits: list[Hit],

@@ -375,3 +375,69 @@ def test_compat_proposal_includes_link(client, shopper, fake_model):
     r = client.post("/v1/chat/completions", json=body, headers=bearer(token))
     assert r.headers["x-guardrail-status"] == "confirmation_required"
     assert "확인 링크: https://shop.example.internal/actions/" in r.json()["choices"][0]["message"]["content"]
+
+
+def test_claimed_change_pattern_covers_promises_not_offers():
+    from app.chat.service import CLAIMED_CHANGE
+
+    assert CLAIMED_CHANGE.search("울 블렌드 코트를 2개 장바구니에 담아드릴게요. 확인해 주세요.")
+    assert CLAIMED_CHANGE.search("쿠폰을 적용해 드리겠습니다.")
+    assert not CLAIMED_CHANGE.search("필요하시면 장바구니에 담아드릴 수 있어요!")
+
+
+def test_product_named_instead_of_id_is_resolved(client, shopper, fake_model):
+    new_product(price=7000, name="해결 테스트 장갑")
+    session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]
+    fake_model.replies = [tool_call("set_cart_item", {"product_id": "해결 테스트 장갑", "quantity": "2"})]
+    r = client.post("/api/v1/chat/completions", json={"session_id": session, "prompt": "장갑 2개 담아줘"},
+                    headers=bearer(shopper["token"]))  # fmt: skip
+    body = r.json()
+    assert body["status"] == "confirmation_required" and "해결 테스트 장갑 수량 0개 → 2개" in body["content"]
+    hits = {(h["rule_id"], h["action"]) for h in outbox(r.headers["x-request-id"])["rule_hits"]}
+    assert ("RULE_TOOL_ARGUMENT_INVALID", "observe") in hits
+
+
+def test_guessed_id_is_resolved_from_the_customer_message(client, shopper, fake_model):
+    new_product(price=8000, name="메시지 테스트 양말")
+    session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]
+    fake_model.replies = [tool_call("set_cart_item", {"product_id": "12345", "quantity": 1})]
+    r = client.post("/api/v1/chat/completions", json={"session_id": session, "prompt": "메시지 테스트 양말 1개 담아줘"},
+                    headers=bearer(shopper["token"]))  # fmt: skip
+    assert r.json()["status"] == "confirmation_required"
+
+
+def test_cart_request_without_change_tool_is_retried_once(client, shopper, fake_model):
+    product = new_product(price=9000, name="재시도 테스트 모자")
+    session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]
+    fake_model.replies = [{"content": "재시도 테스트 모자를 담아드릴 수 있습니다."},
+                          tool_call("set_cart_item", {"product_id": product, "quantity": 1})]  # fmt: skip
+    r = client.post("/api/v1/chat/completions", json={"session_id": session, "prompt": "재시도 테스트 모자 담아줘"},
+                    headers=bearer(shopper["token"]))  # fmt: skip
+    assert r.json()["status"] == "confirmation_required" and len(fake_model.chat_calls) == 2
+
+
+def test_cart_request_honest_answer_is_kept_after_retry(client, shopper, fake_model):
+    session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]
+    fake_model.replies = [{"content": "그 상품은 재고가 없어요."}, {"content": "그 상품은 재고가 없어요."}]
+    r = client.post("/api/v1/chat/completions", json={"session_id": session, "prompt": "품절 상품 담아줘"},
+                    headers=bearer(shopper["token"]))  # fmt: skip
+    assert r.json()["content"] == "그 상품은 재고가 없어요." and len(fake_model.chat_calls) == 2
+
+
+def test_server_proposes_when_the_model_never_calls_the_change_tool(client, shopper, fake_model):
+    new_product(price=6000, name="서버 제안 머리띠")
+    session = client.post("/api/v1/sessions", json={}, headers=bearer(shopper["token"])).json()["data"]["session_id"]
+    fake_model.replies = [{"content": "담아드릴 수 있습니다."}, {"content": "담아드릴 수 있습니다."}]
+    r = client.post("/api/v1/chat/completions", json={"session_id": session, "prompt": "서버 제안 머리띠 두 개 담아줘"},
+                    headers=bearer(shopper["token"]))  # fmt: skip
+    body = r.json()
+    assert body["status"] == "confirmation_required" and "서버 제안 머리띠 수량 0개 → 2개" in body["content"]
+    assert cart(client, shopper)["items"] == []  # still only a proposal
+
+
+def test_quantity_words():
+    from app.chat.service import _quantity
+
+    assert [_quantity(t) for t in ("3개 담아줘", "두 개 넣어줘", "하나 담아줘", "네, 담아줘", "세트 담아줘", "담아줘")] == [
+        3, 2, 1, 1, 1, 1,
+    ]  # fmt: skip

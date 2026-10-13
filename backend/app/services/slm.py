@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
@@ -23,7 +23,7 @@ from app.guardrails.ruleset import RuleSnapshot
 from app.guardrails.types import Hit
 from app.security.auth import AuthContext
 from app.services.ollama import InferenceTimeout, InferenceUnavailable, OllamaClient
-from app.shop import actions
+from app.shop import actions, dao
 from app.shop.tools import CHANGE_TOOLS, ObjectNotFound
 
 MAX_TOOL_RESULT_CHARS = 8000
@@ -159,6 +159,21 @@ class SLMService:
                 fn = call.get("function") if isinstance(call, dict) else None
                 name = fn.get("name") if isinstance(fn, dict) else None
                 decision = authorize_tool(ctx, name, fn.get("arguments") if isinstance(fn, dict) else None)
+                if decision.rule_id == "RULE_TOOL_ARGUMENT_INVALID" and (
+                    fixed := await self._resolve_product(fn, new_messages)
+                ):
+                    # The model named the product instead of passing its id: one exact catalog match is used.
+                    result.hits.append(replace(_hit(snapshot, decision.rule_id, "execution"), action="observe"))
+                    decision = authorize_tool(ctx, name, fixed)
+                if decision.rule_id == "RULE_TOOL_ARGUMENT_INVALID":
+                    # A malformed argument (typically a guessed product id) is a model mistake, not an attack:
+                    # nothing ran, so tell the model how to fix it and let it retry within the call budget.
+                    result.tool_executions.append(
+                        ToolExecution(tool_name=str(name)[:64], outcome="denied", duration_ms=0)
+                    )
+                    result.hits.append(replace(_hit(snapshot, decision.rule_id, "execution"), action="observe"))
+                    messages.append({"role": "tool", "tool_name": str(name)[:64], "content": INVALID_ARGUMENTS_HINT})
+                    continue
                 if not decision.allowed:
                     result.tool_executions.append(
                         ToolExecution(tool_name=str(name)[:64] if name else "unknown", outcome="denied", duration_ms=0)
@@ -211,6 +226,36 @@ class SLMService:
                     result.blocked_tool = (decision.spec.name, content)
                     return result
                 messages.append({"role": "tool", "tool_name": decision.spec.name, "content": content})
+
+    async def _resolve_product(self, fn: dict, new_messages: list[dict]) -> dict | None:
+        """A malformed product_id on a cart change (a small model guesses "12345" or writes the name): the id of the
+        one active product named by the guess, else the one product named in the customer's own message; None when
+        that is not exactly one. Only public catalog data is read; the customer still confirms the change."""
+        args = fn.get("arguments")
+        if fn.get("name") not in ("set_cart_item", "remove_cart_item") or not isinstance(args, dict):
+            return None
+        guess = args.get("product_id")
+        guess = guess.strip() if isinstance(guess, str) and len(guess) <= 100 else ""
+        said = "".join(m["content"] for m in new_messages if m.get("role") == "user").replace(" ", "")
+        async with self.pool.connection() as conn:
+            matches = await dao.search_products(conn, guess, 2) if guess else []
+            if len(matches) != 1:
+                catalog = await dao.search_products(conn, "", 100)
+                matches = [p for p in catalog if p["name"].replace(" ", "") in said]
+        if len(matches) != 1:
+            return None
+        quantity = args.get("quantity")
+        if isinstance(quantity, str) and quantity.strip().isdigit():
+            quantity = int(quantity)
+        return {**args, "product_id": matches[0]["id"]} | ({"quantity": quantity} if "quantity" in args else {})
+
+
+# Fixed text (never echoes the bad value) returned to the model for a malformed Tool argument (D-44).
+INVALID_ARGUMENTS_HINT = json.dumps(
+    {"error": "INVALID_ARGUMENTS", "hint": "Ids are never guessed. Call search_products yourself now with the "
+     "product name (do not ask the customer to search), then call the change tool again with the id from the "
+     "result. Coupon ids come from list_coupons."}
+)  # fmt: skip
 
 
 def _ms(started: float) -> float:

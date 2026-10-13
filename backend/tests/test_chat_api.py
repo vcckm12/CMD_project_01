@@ -195,21 +195,40 @@ def test_other_users_order_is_blocked_without_revealing(client, customer, fake_m
     assert "RULE_TOOL_OBJECT_ACCESS" in {h["rule_id"] for h in outbox(r.headers["x-request-id"])["rule_hits"]}
 
 
-@pytest.mark.parametrize(
-    ("call", "rule"),
-    [
-        (tool_call("drop_database", {}), "RULE_TOOL_NOT_ALLOWED"),
-        (tool_call("get_cart", {"user_id": str(uuid.uuid4())}), "RULE_TOOL_ARGUMENT_INVALID"),
-        (tool_call("search_products", {"q": "x", "limit": True}), "RULE_TOOL_ARGUMENT_INVALID"),
-        (tool_call("search_products", {"q": "x", "limit": 500}), "RULE_TOOL_ARGUMENT_INVALID"),
-        (tool_call("get_order", "not-an-object"), "RULE_TOOL_ARGUMENT_INVALID"),
-    ],
-)
-def test_execution_guardrail_denials(client, customer, fake_model, call, rule):
-    fake_model.replies = [call]
+def test_unknown_tool_is_blocked(client, customer, fake_model):
+    fake_model.replies = [tool_call("drop_database", {})]
     r = chat(client, customer, "도와줘")
     assert r.status_code == 403 and r.json()["guardrail"]["stage"] == "execution"
-    assert rule in {h["rule_id"] for h in outbox(r.headers["x-request-id"])["rule_hits"]}
+    assert "RULE_TOOL_NOT_ALLOWED" in {h["rule_id"] for h in outbox(r.headers["x-request-id"])["rule_hits"]}
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        tool_call("get_cart", {"user_id": str(uuid.uuid4())}),
+        tool_call("search_products", {"q": "x", "limit": True}),
+        tool_call("search_products", {"q": "x", "limit": 500}),
+        tool_call("get_order", "not-an-object"),
+        tool_call("set_cart_item", {"product_id": "레더 벨트", "quantity": 1}),  # guessed id
+    ],
+)
+def test_malformed_arguments_are_returned_to_the_model(client, customer, fake_model, call):
+    # D-44: nothing runs; the model gets a fixed hint and retries, and the audit records an observation.
+    fake_model.replies = [call, {"content": "상품을 먼저 찾아볼게요."}]
+    r = chat(client, customer, "도와줘")
+    assert r.status_code == 200 and r.json()["status"] == "success"
+    retry = fake_model.chat_calls[-1]["messages"]
+    assert retry[-1]["role"] == "tool" and "INVALID_ARGUMENTS" in retry[-1]["content"]
+    assert "레더 벨트" not in retry[-1]["content"] and str(call) not in retry[-1]["content"]  # never echoed
+    hits = outbox(r.headers["x-request-id"])["rule_hits"]
+    assert {(h["rule_id"], h["action"]) for h in hits} == {("RULE_TOOL_ARGUMENT_INVALID", "observe")}
+
+
+def test_repeated_malformed_arguments_hit_the_call_budget(client, customer, fake_model):
+    fake_model.replies = [tool_call("search_products", {"q": "x", "limit": 500})] * 8
+    r = chat(client, customer, "도와줘")
+    assert r.status_code == 403
+    assert "RULE_TOOL_BUDGET" in {h["rule_id"] for h in outbox(r.headers["x-request-id"])["rule_hits"]}
 
 
 def test_tool_round_budget(client, customer, fake_model):
