@@ -338,6 +338,8 @@ class ChatService:
             turn, snapshot, status, stage, hits, tool_execs, input_ms, output_ms, summary, signals,
             reply_for_context, proposal,
         )  # fmt: skip
+        blocking = sorted({h.rule_id for h in hits if h.action == "block"})
+        await self.pipeline.monitor.input_seen(_last_user_text(turn), str(event_id), status, blocking)  # D-47
         lab_inputs = getattr(self.state, "lab_inputs", None)  # set only when APP_ENV=lab (synthetic data)
         if lab_inputs is not None:  # every lab chat input, so any lab event can be replayed OFF/ON (D-37)
             messages = [(m.role, m.content) for m in turn.inspect]

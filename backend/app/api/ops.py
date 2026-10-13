@@ -314,7 +314,7 @@ async def list_alerts(request: Request, ctx: Staff, state: Literal["open", "ackn
         rows = await (
             await conn.execute(
                 "SELECT id, kind, severity, fingerprint, detail, occurrences, first_seen_at, last_seen_at, state,"
-                " acknowledged_by, acknowledged_at FROM audit.alerts WHERE state = %s"
+                " acknowledged_by, acknowledged_at, last_event_id, rule_ids FROM audit.alerts WHERE state = %s"
                 " ORDER BY last_seen_at DESC LIMIT 200",
                 (state,),
             )
@@ -323,7 +323,8 @@ async def list_alerts(request: Request, ctx: Staff, state: Literal["open", "ackn
         {**r, "id": str(r["id"]), "fingerprint": (r["fingerprint"] or "")[:12] or None,
          "first_seen_at": r["first_seen_at"].isoformat(), "last_seen_at": r["last_seen_at"].isoformat(),
          "acknowledged_by": str(r["acknowledged_by"]) if r["acknowledged_by"] else None,
-         "acknowledged_at": r["acknowledged_at"].isoformat() if r["acknowledged_at"] else None}
+         "acknowledged_at": r["acknowledged_at"].isoformat() if r["acknowledged_at"] else None,
+         "last_event_id": str(r["last_event_id"]) if r["last_event_id"] else None}
         for r in rows
     ]  # fmt: skip
     return ok(request, {"items": items, "next_cursor": None})

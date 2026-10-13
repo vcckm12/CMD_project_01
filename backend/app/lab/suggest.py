@@ -81,17 +81,22 @@ class Suggestion:
         return asdict(self)
 
 
-def check(pattern: str, text: str) -> tuple[dict[str, bool], list[str]]:
-    """Server-side gate for a proposed pattern: (named checks, benign questions it would block)."""
+def check(pattern: str, text: str, recent: list[str] = ()) -> tuple[dict[str, bool], list[str]]:
+    """Server-side gate for a proposed pattern: (named checks, normal questions it would block). `recent` are
+    LAB questions that got a normal answer in the last 7 days (D-47); they must not match either."""
     rule = RuleDef("RULE_LAB_CANDIDATE", "input", "LLM01:2025", "regex", "block", pattern=pattern, flags="i")
     safety = _validate_pattern(rule) if 0 < len(pattern) <= MAX_PATTERN else ["PATTERN_LENGTH"]
     checks = {"compiles_and_safe": not safety}
     if safety:
-        return checks | {"matches_source": False, "no_benign_hits": False}, []
+        return checks | {"matches_source": False, "no_benign_hits": False, "no_recent_normal_hits": False}, []
     compiled = compile_pattern(rule)
     found = any(compiled.search(v, timeout=0.05) for v in (text, canonical(text)))
     benign = [b for b in BENIGN if compiled.search(b, timeout=0.05)]
-    return checks | {"matches_source": found, "no_benign_hits": not benign}, benign
+    normal = [r for r in recent if r != text and compiled.search(r, timeout=0.05)]
+    return checks | {"matches_source": found, "no_benign_hits": not benign, "no_recent_normal_hits": not normal}, [
+        *benign,
+        *normal,
+    ]
 
 
 class RuleSuggester:
@@ -99,7 +104,7 @@ class RuleSuggester:
         self.client = client
         self.items: dict[str, Suggestion] = {}
 
-    async def generate(self, event_id: str, text: str) -> Suggestion:
+    async def generate(self, event_id: str, text: str, recent: list[str] = ()) -> Suggestion:
         """Ask the model (with one feedback round) and keep the first pattern that passes every check."""
         s = Suggestion(event_id, text)
         messages = [{"role": "system", "content": PROMPT}, {"role": "user", "content": text}]
@@ -114,7 +119,7 @@ class RuleSuggester:
             s.pattern = GAP.sub(".{0,40}", str(data.get("pattern") or ""))[: MAX_PATTERN * 2]
             s.category = data.get("category") if data.get("category") in CATEGORIES else "LLM01:2025"
             s.explanation = str(data.get("explanation_ko") or "")[:300]
-            s.checks, s.benign_hits = check(s.pattern, text)
+            s.checks, s.benign_hits = check(s.pattern, text, list(recent))
             if all(s.checks.values()):
                 break
             problem = ("it does not compile or is unsafe" if not s.checks["compiles_and_safe"]

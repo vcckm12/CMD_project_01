@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -108,6 +108,82 @@ async def _collecting_draft(conn) -> dict | None:
     ).fetchone()
 
 
+async def _recent_normal(request: Request) -> list[str]:
+    """LAB questions answered normally in the last 7 days (their text is still in lab memory)."""
+    async with request.app.state.pools.audit.connection() as conn:
+        rows = await (await conn.execute(
+            "SELECT event_id FROM audit.events WHERE status IN ('success', 'masked', 'confirmation_required')"
+            " AND api_path LIKE '%%chat/completions' AND occurred_at > now() - interval '7 days'"
+            " ORDER BY occurred_at DESC LIMIT 500")).fetchall()  # fmt: skip
+    texts = (request.app.state.lab_inputs.last_user_text(str(r["event_id"])) for r in rows)
+    return list(dict.fromkeys(t for t in texts if t))
+
+
+async def _ensure_collecting_draft(conn, ctx: AuthContext) -> dict:
+    """The open lab-suggest draft, or a new one cloned from the active ruleset."""
+    draft = await _collecting_draft(conn)
+    if draft is not None:
+        return draft
+    active = await rule_store.active_id(conn)
+    policy = (await (await conn.execute("SELECT policy FROM threat_intel.rulesets WHERE id = %s",
+                                        (active,))).fetchone())["policy"]  # fmt: skip
+    label = f"lab-suggest-{datetime.now(UTC):%Y%m%d%H%M%S}"
+    draft_id = await rule_store.create_draft(conn, label=label, actor_id=ctx.user_id, policy=policy, parent_id=active,
+                                             rules=await rule_store._rules(conn, active))  # fmt: skip
+    return {"id": draft_id, "version_label": label}
+
+
+async def _watched_rules(request: Request) -> list[dict]:
+    """Suggested rules in the active ruleset and the collecting draft, with the last 7 days of hits (D-47)."""
+    state = request.app.state
+    async with state.pools.rules.connection() as conn:
+        rows = await (await conn.execute(
+            "SELECT r.rule_id, r.pattern, r.action, s.state AS ruleset_state, s.version_label FROM threat_intel.rules r"
+            " JOIN threat_intel.rulesets s ON s.id = r.ruleset_id WHERE r.rule_id LIKE %s"
+            " AND (s.state = 'active' OR (s.state = 'draft' AND s.version_label LIKE %s)) ORDER BY r.rule_id",
+            ("RULE_LAB_SUGGEST_%", "lab-suggest-%"))).fetchall()  # fmt: skip
+    rules: dict[str, dict] = {}
+    for r in rows:
+        entry = rules.setdefault(r["rule_id"], {"rule_id": r["rule_id"], "pattern": r["pattern"], "active": None,
+                                                "draft": None, "hits": []})  # fmt: skip
+        entry["active" if r["ruleset_state"] == "active" else "draft"] = r["action"]
+    if not rules:
+        return []
+    async with state.pools.audit.connection() as conn:
+        hits = await (await conn.execute(
+            "SELECT h.rule_id, e.event_id, e.status, e.occurred_at FROM audit.rule_hits h JOIN audit.events e"
+            " USING (event_id) WHERE h.rule_id = ANY(%s) AND e.occurred_at > now() - interval '7 days'"
+            " ORDER BY e.occurred_at DESC LIMIT 200", (list(rules),))).fetchall()  # fmt: skip
+    for h in hits:
+        text = state.lab_inputs.last_user_text(str(h["event_id"]))
+        rules[h["rule_id"]]["hits"].append({"event_id": str(h["event_id"]), "status": h["status"], "text": text,
+                                            "occurred_at": h["occurred_at"].isoformat()})  # fmt: skip
+    return list(rules.values())
+
+
+class RuleMode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["block", "remove"]
+
+
+@router.post("/rules/{rule_id}/mode")
+async def set_rule_mode(request: Request, rule_id: str, body: RuleMode, ctx: Admin) -> JSONResponse:
+    """Promote a watched suggested rule to blocking, or remove it, in the collecting draft (published later)."""
+    if not rule_id.startswith("RULE_LAB_SUGGEST_"):
+        raise ApiError(404, "NOT_FOUND")
+    async with request.app.state.pools.rules.connection() as conn, conn.transaction():
+        draft = await _ensure_collecting_draft(conn, ctx)
+        if body.mode == "block":
+            sql = "UPDATE threat_intel.rules SET action = 'block' WHERE ruleset_id = %s AND rule_id = %s"
+        else:
+            sql = "DELETE FROM threat_intel.rules WHERE ruleset_id = %s AND rule_id = %s"
+        if (await conn.execute(sql, (draft["id"], rule_id))).rowcount == 0:
+            raise ApiError(404, "NOT_FOUND")
+        summary = "차단으로 전환" if body.mode == "block" else "삭제"
+        await _record(conn, request, ctx, f"LAB 제안 규칙 {summary}: {rule_id}", draft["id"])
+    return ok(request, {"rule_id": rule_id, "mode": body.mode, "draft_label": draft["version_label"]})
+
+
 @router.get("/rule-suggestions")
 async def rule_suggestions(request: Request, ctx: Admin) -> JSONResponse:
     """Inputs the rules passed but the AI judge blocked, with their text (lab memory) and suggestion state."""
@@ -130,7 +206,7 @@ async def rule_suggestions(request: Request, ctx: Admin) -> JSONResponse:
             query = "SELECT count(*) AS n FROM threat_intel.rules WHERE ruleset_id = %s AND rule_id LIKE %s"
             count = (await (await conn.execute(query, (draft["id"], "RULE_LAB_SUGGEST_%"))).fetchone())["n"]
     collecting = {"id": str(draft["id"]), "label": draft["version_label"], "added": count} if draft else None
-    return ok(request, {"items": items, "draft": collecting})
+    return ok(request, {"items": items, "draft": collecting, "watched": await _watched_rules(request)})
 
 
 @router.post("/rule-suggestions/{event_id}/generate")
@@ -138,7 +214,7 @@ async def generate_suggestion(request: Request, event_id: uuid.UUID, ctx: Admin)
     text = request.app.state.lab_inputs.last_user_text(str(event_id))
     if text is None:
         raise ApiError(404, "NOT_FOUND")
-    suggestion = await request.app.state.rule_suggester.generate(str(event_id), text)
+    suggestion = await request.app.state.rule_suggester.generate(str(event_id), text, await _recent_normal(request))
     return ok(request, suggestion.view())
 
 
@@ -153,22 +229,13 @@ async def decide_suggestion(request: Request, event_id: uuid.UUID, body: Decisio
         suggestion.state = "rejected"
         return ok(request, suggestion.view())
     async with request.app.state.pools.rules.connection() as conn, conn.transaction():
-        draft = await _collecting_draft(conn)
-        if draft is None:
-            active = await rule_store.active_id(conn)
-            policy = (await (await conn.execute("SELECT policy FROM threat_intel.rulesets WHERE id = %s",
-                                                (active,))).fetchone())["policy"]  # fmt: skip
-            label = f"lab-suggest-{datetime.now(UTC):%Y%m%d%H%M%S}"
-            draft_id = await rule_store.create_draft(conn, label=label, actor_id=ctx.user_id,
-                                                     rules=await rule_store._rules(conn, active), policy=policy,
-                                                     parent_id=active)  # fmt: skip
-            draft = {"id": draft_id, "version_label": label}
+        draft = await _ensure_collecting_draft(conn, ctx)
         existing = [r["rule_id"] for r in await (await conn.execute(
             "SELECT rule_id FROM threat_intel.rules WHERE ruleset_id = %s", (draft["id"],))).fetchall()]  # fmt: skip
         rule_id = next_rule_id(existing)
         await conn.execute(
             f"INSERT INTO threat_intel.rules (ruleset_id, {rule_store.RULE_COLUMNS})"  # noqa: S608 - constant columns
-            " VALUES (%s, %s, 'input', %s, 'regex', %s, 'i', 'block', NULL, 80)",
+            " VALUES (%s, %s, 'input', %s, 'regex', %s, 'i', 'observe', NULL, 80)",  # watch first (D-47)
             (draft["id"], rule_id, suggestion.category, suggestion.pattern),
         )
         await _record(conn, request, ctx, f"LAB 정규식 제안 채택: {rule_id}", draft["id"])

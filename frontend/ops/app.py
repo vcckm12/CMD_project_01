@@ -21,24 +21,24 @@ KST = ZoneInfo("Asia/Seoul")
 STATUSES = ["success", "blocked", "masked", "confirmation_required", "error"]
 # Display name and color per audit status (shared by cards and charts).
 STATUS_STYLE = {"success": ("✅ 정상", "#047857"), "blocked": ("🛑 차단", "#b91c1c"), "masked": ("🔒 정화", "#b45309"),
-                "confirmation_required": ("⏳ 승인 대기", "#1d4ed8"), "error": ("⚠️ 오류", "#6b7280")}  # fmt: skip
+                "confirmation_required": ("⏳ 승인 대기", "#1d4ed8"), "error": ("⚠️ 오류", "#64748b")}  # fmt: skip
 OWASP_NAMES = {"LLM01:2025": "LLM01 프롬프트 인젝션", "LLM02:2025": "LLM02 민감정보 노출", "LLM05:2025": "LLM05 부적절한 출력",
                "LLM06:2025": "LLM06 과도한 권한", "LLM07:2025": "LLM07 시스템 프롬프트 유출",
                "LLM10:2025": "LLM10 무제한 자원 소비"}  # fmt: skip
-OVERLAP_STYLE = {"rules_only": ("규칙만", "#111827"), "judge_only": ("AI 판별만", "#7c3aed"), "both": ("둘 다", "#047857"),
-                 "rules_judge_error": ("규칙만(AI 실패)", "#9ca3af")}  # fmt: skip
+OVERLAP_STYLE = {"rules_only": ("규칙만", "#0f172a"), "judge_only": ("AI 판별만", "#7c3aed"), "both": ("둘 다", "#047857"),
+                 "rules_judge_error": ("규칙만(AI 실패)", "#94a3b8")}  # fmt: skip
 
 
 def bar(frame: pd.DataFrame, x: str, y: str, colors: dict[str, str] | None = None, horizontal: bool = False):
     """Small Altair bar chart with fixed colors per category (Streamlit's default is one color)."""
     color = (alt.Color(f"{x}:N", scale=alt.Scale(domain=list(colors), range=list(colors.values())), legend=None)
-             if colors else alt.value("#111827"))  # fmt: skip
+             if colors else alt.value("#0f172a"))  # fmt: skip
     enc = (
         {"x": alt.X(f"{y}:Q", title=None), "y": alt.Y(f"{x}:N", sort=None, title=None, axis=alt.Axis(labelLimit=240))}
         if horizontal
         else {"x": alt.X(f"{x}:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)), "y": alt.Y(f"{y}:Q", title=None)}
     )
-    chart = alt.Chart(frame).mark_bar(cornerRadius=4).encode(color=color, tooltip=[x, y], **enc)
+    chart = alt.Chart(frame).mark_bar(cornerRadius=5).encode(color=color, tooltip=[x, y], **enc)
     return chart.properties(height=max(160, 34 * len(frame)) if horizontal else 240)
 
 
@@ -125,6 +125,10 @@ def open_conversation(session_id: str) -> None:
     st.session_state.update({"page": "대시보드", "dash-session": session_id})
 
 
+def open_event_detail(event_id: str) -> None:
+    st.session_state.update({"page": "감사 상세", "detail-event": event_id})
+
+
 def open_event() -> None:
     event_id = st.session_state.get("dash-jump", "").strip()
     if event_id:
@@ -177,7 +181,7 @@ def dashboard() -> None:
                     for k, n in (s.get("layer_overlap", {}).get(stage) or {}).items() if n]  # fmt: skip
             if rows:
                 colors = {v[0]: v[1] for v in OVERLAP_STYLE.values()}
-                chart = alt.Chart(pd.DataFrame(rows)).mark_bar(cornerRadius=4).encode(
+                chart = alt.Chart(pd.DataFrame(rows)).mark_bar(cornerRadius=5).encode(
                     x=alt.X("건수:Q", stack="normalize", title=None, axis=alt.Axis(format="%")),
                     y=alt.Y("단계:N", sort=["입력", "도구 결과", "출력"], title=None),
                     color=alt.Color("계층:N", scale=alt.Scale(domain=list(colors), range=list(colors.values())),
@@ -307,9 +311,9 @@ def layer_breakdown(e: dict) -> None:
         r["비중"] = f"{r['ms'] / total * 100:.1f}%"
     table, chart = st.columns([3, 2])
     table.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
-    verdict_colors = {"🛑 차단": "#b91c1c", "✅ 통과": "#047857", "⚠️ 판별 실패": "#b45309", "—": "#9ca3af"}
+    verdict_colors = {"🛑 차단": "#b91c1c", "✅ 통과": "#047857", "⚠️ 판별 실패": "#b45309", "—": "#94a3b8"}
     frame = pd.DataFrame([{"계층": r["계층"], "판정": r["판정"].replace("— 미실행", "—"), "ms": r["ms"]} for r in rows])
-    chart.altair_chart(alt.Chart(frame).mark_bar(cornerRadius=4).encode(
+    chart.altair_chart(alt.Chart(frame).mark_bar(cornerRadius=5).encode(
         x=alt.X("ms:Q", title="처리 시간 (ms)"), y=alt.Y("계층:N", sort=None, title=None),
         color=alt.Color("판정:N", scale=alt.Scale(domain=list(verdict_colors), range=list(verdict_colors.values())),
                         legend=alt.Legend(orient="bottom", title=None)),
@@ -346,7 +350,8 @@ def lab_blocked_input(event_id: str, status: str) -> None:
 def alerts_page() -> None:
     st.header("경보")
     st.caption("judge_unavailable: 모델 서버 점검 · suspicious_input_repeat: 같은 입력 반복 실패(지연 공격 의심) · "
-               "outbox_dead: 감사 적재 실패. 확인 처리는 상황을 조치했다는 기록이며 원문은 제공되지 않습니다.")  # fmt: skip
+               "repeated_input: 같은 질문이 10분 안에 3회 이상(공격 시도이거나, 정상 질문이 오탐으로 계속 막히는 경우) · "
+               "확인 처리는 상황을 조치했다는 기록이며 원문은 제공되지 않습니다.")  # fmt: skip
     with shown_errors() as call:
         open_alerts = client().get("/api/v1/alerts")["items"]
     if call.failed:
@@ -358,6 +363,11 @@ def alerts_page() -> None:
             st.write(f"**{a['severity'].upper()} · {a['kind']}** · {a['occurrences']}회 · "
                      f"최초 {kst(a['first_seen_at'])} · 최근 {kst(a['last_seen_at'])}")  # fmt: skip
             st.text(a["detail"] + (f" · 입력 지문 {a['fingerprint']}" if a["fingerprint"] else ""))
+            if a.get("rule_ids") and "RULE_LAB_SUGGEST_" in a["rule_ids"]:
+                st.warning("제안으로 추가한 규칙이 이 질문을 막고 있습니다. 오탐이면 '정규식 제안'에서 그 규칙을 삭제하세요.")
+            if a.get("last_event_id"):
+                st.button("마지막 요청 감사 상세 보기", key=f"open-{a['id']}", on_click=open_event_detail,
+                          args=(a["last_event_id"],))  # fmt: skip
             if st.button("확인 처리", key=f"ack-{a['id']}"):
                 with shown_errors():
                     client().post(f"/api/v1/alerts/{a['id']}/acknowledge")
@@ -651,7 +661,8 @@ def lab_page() -> None:
 # ----------------------------------------------------------------- LAB regex suggestions (D-46)
 
 CHECK_NAMES = {"compiles_and_safe": "문법·안전성(느려지는 패턴 없음)", "matches_source": "원래 공격 문장에 걸림",
-               "no_benign_hits": "정상 질문 90건에 하나도 안 걸림"}  # fmt: skip
+               "no_benign_hits": "정상 질문 90건에 하나도 안 걸림",
+               "no_recent_normal_hits": "최근 7일 LAB 정상 질문에 하나도 안 걸림"}  # fmt: skip
 
 
 def decide(event_id: str, accept: bool) -> None:
@@ -663,8 +674,9 @@ def suggestions_page() -> None:
     st.error("🧪 LAB 환경 — 합성 데이터·미끼 비밀 전용입니다. 운영 환경이 아닙니다.")
     st.header("정규식 제안")
     st.caption("정규식은 통과했지만 AI 판별이 막은 LAB 입력(최근 7일)입니다. AI가 정규식을 제안하고 서버가 자동으로 "
-               "검사합니다. YES를 누르면 수집용 draft 룰셋에 추가되고, '규칙·정책'에서 검증·게시(비밀번호 확인)해야 "
-               "실제로 적용됩니다.")  # fmt: skip
+               "검사합니다. YES를 누르면 **관찰 모드**(막지 않고 기록만)로 수집용 draft 룰셋에 추가됩니다. "
+               "'규칙·정책'에서 검증·게시(비밀번호 확인)하면 관찰이 시작되고, 아래 '관찰 중인 규칙'에서 걸린 문장을 "
+               "보고 차단으로 전환하거나 삭제합니다.")  # fmt: skip
     with shown_errors() as call:
         data = client().get("/api/v1/lab/rule-suggestions")
     if call.failed:
@@ -700,11 +712,46 @@ def suggestions_page() -> None:
                 st.caption("걸리는 정상 질문: " + " / ".join(s["benign_hits"][:5]))
             if s["state"] == "pending":
                 yes, no, _ = st.columns([1, 1, 4])
-                yes.button("YES · 규칙 추가", key=f"yes-{item['event_id']}", type="primary",
+                yes.button("YES · 관찰 모드로 추가", key=f"yes-{item['event_id']}", type="primary",
                            on_click=decide, args=(item["event_id"], True))  # fmt: skip
                 no.button("NO", key=f"no-{item['event_id']}", on_click=decide, args=(item["event_id"], False))
             elif s["state"] == "accepted":
-                st.success(f"채택됨: {s['rule_id']} → draft {s['draft_label']}")
+                st.success(f"채택됨(관찰 모드): {s['rule_id']} → draft {s['draft_label']}")
+    watched_rules(data.get("watched", []))
+
+
+MODES = {"observe": "👁 관찰(기록만)", "block": "🛑 차단", None: "—"}
+
+
+def set_mode(rule_id: str, mode: str) -> None:
+    with shown_errors():
+        client().post(f"/api/v1/lab/rules/{rule_id}/mode", {"mode": mode})
+
+
+def watched_rules(watched: list[dict]) -> None:
+    st.subheader("관찰 중인 규칙")
+    st.caption("제안으로 추가한 규칙이 최근 7일 동안 걸린 질문입니다. '정상 질문인데 걸림'이 있으면 오탐이니 "
+               "삭제하고, 공격만 걸렸으면 차단으로 전환하세요. 바꾼 내용은 draft에 모이며 '규칙·정책'에서 게시해야 "
+               "적용됩니다.")  # fmt: skip
+    if not watched:
+        st.info("아직 제안으로 추가한 규칙이 없습니다.")
+        return
+    for w in watched:
+        with st.container(border=True):
+            st.markdown(f"**{w['rule_id']}** · 운영 중: {MODES[w['active']]} · draft: {MODES[w['draft']]}")
+            st.code(w["pattern"], language=None)
+            normal = [h for h in w["hits"] if h["status"] != "blocked"]
+            st.write(f"최근 7일 {len(w['hits'])}건 걸림 · 그중 정상 질문 {len(normal)}건")
+            for h in w["hits"][:10]:
+                label = "⚠️ 정상 질문인데 걸림(오탐 후보)" if h["status"] != "blocked" else "공격으로 차단된 요청"
+                st.caption(f"{kst(h['occurred_at'])} · {label}")
+                st.text(h["text"] or "(원문 없음: LAB API 재시작 전 기록)")
+            block, remove, _ = st.columns([1, 1, 3])
+            current = w["draft"] or w["active"]  # changes go to the collecting draft (cloned when needed)
+            if current == "observe":
+                block.button("차단으로 전환", key=f"blk-{w['rule_id']}", on_click=set_mode, args=(w["rule_id"], "block"))
+            if current:
+                remove.button("삭제", key=f"rm-{w['rule_id']}", on_click=set_mode, args=(w["rule_id"], "remove"))
 
 
 # ------------------------------------------------------------------------------ main
