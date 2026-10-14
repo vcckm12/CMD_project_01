@@ -30,7 +30,7 @@
    - 구글 폰트·CDN·외부 이미지 URL을 쓰면 브라우저가 막습니다. 글꼴은 시스템 글꼴 스택(`"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif`)을 씁니다. 웹폰트가 꼭 필요하면 파일을 `frontend/shop/` 안에 넣고 `@font-face`로 같은 출처에서 불러옵니다.
    - **인라인 스타일 금지**: HTML의 `style="…"` 속성, `<style>` 태그, JS의 `el.style.xxx =`는 CSP에 막힙니다. 모든 스타일은 `style.css`에 클래스로 작성합니다.
 2. **HTML 문자열 삽입 금지.** `innerHTML`, `insertAdjacentHTML`, `outerHTML`, `document.write`를 쓰지 않습니다. 요소는 기존 `h()` 함수로 만듭니다. (AI 답변·상품명은 공격자가 조작할 수 있는 텍스트라 반드시 텍스트로만 넣어야 합니다.)
-3. **대시보드도 HTML 렌더링 금지.** `unsafe_allow_html=True`, `st.html`, `st.components`를 쓰지 않습니다. Streamlit 테마·컨테이너·마크다운 색 문법(`:red[...]`)·Altair 차트로만 꾸밉니다.
+3. **대시보드도 HTML 렌더링 금지.** `unsafe_allow_html=True`, `st.html`, `st.components`를 쓰지 않습니다. Streamlit 테마·컨테이너·마크다운 색 문법(`:red[...]`)·Altair 차트로만 꾸밉니다. (2차 개편 이후 예외: 고정 `style.css` 1개 주입만 허용 — [ui_redesign_prompt_ops.md](ui_redesign_prompt_ops.md), D-48)
 4. **API 호출, 이벤트 처리, 화면 이동, `st.session_state` 키, 함수 이름·인자, 데이터 처리 로직을 바꾸지 않습니다.**
 
 ## 바꾸면 안 되는 것 (자동 점검이 이 문구·요소로 화면을 찾습니다)

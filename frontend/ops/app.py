@@ -1,7 +1,8 @@
 """Ops dashboard (DES-004 SCR-O01~O06). Runs behind the ops Nginx host on the management network.
 
-Never renders HTML: answers and summaries are shown with st.text/st.dataframe, and no call uses
-unsafe_allow_html. Each user's API client lives in st.session_state only.
+Never renders data as HTML: the only `st.html` call injects the fixed `style.css`; answers and summaries
+are shown with st.text/st.dataframe, and no call uses unsafe_allow_html. Each user's API client lives
+in st.session_state only.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from datetime import UTC, datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import altair as alt
@@ -16,6 +18,9 @@ import pandas as pd
 import streamlit as st
 
 from ops_client import ApiFailure, OpsClient
+
+# Fixed stylesheet from the repo; never mix data into it (no f-string, no format, no concatenation with values).
+STYLE = Path(__file__).with_name("style.css").read_text("utf-8")
 
 KST = ZoneInfo("Asia/Seoul")
 STATUSES = ["success", "blocked", "masked", "confirmation_required", "error"]
@@ -42,7 +47,55 @@ def bar(frame: pd.DataFrame, x: str, y: str, colors: dict[str, str] | None = Non
     return chart.properties(height=max(160, 34 * len(frame)) if horizontal else 240)
 
 
+def donut(
+    frame: pd.DataFrame,
+    label_field: str,
+    value_field: str,
+    colors: dict[str, str] | None = None,
+    center_text: str = "",
+    tooltip: list[str] | None = None,
+    color_field: str | None = None,
+    height: int = 200,
+    inner_radius: int = 42,
+    outer_radius: int = 68,
+    show_legend: bool = True,
+):
+    """Altair donut chart with center text and bottom legend."""
+    color_col = color_field or label_field
+    color_scale = (
+        alt.Color(
+            f"{color_col}:N",
+            scale=alt.Scale(domain=list(colors), range=list(colors.values())),
+            legend=alt.Legend(orient="bottom", title=None) if show_legend else None,
+        )
+        if colors
+        else alt.value("#0f172a")
+    )
+    enc = {
+        "theta": alt.Theta(f"{value_field}:Q", stack=True),
+        "color": color_scale,
+        "tooltip": tooltip or [label_field, value_field],
+    }
+    if color_field and color_field != label_field:
+        enc["detail"] = alt.Detail(f"{label_field}:N")
+
+    arc = (
+        alt.Chart(frame)
+        .mark_arc(innerRadius=inner_radius, outerRadius=outer_radius, stroke="#ffffff", strokeWidth=1.5)
+        .encode(**enc)
+    )
+    if center_text:
+        text = alt.Chart(pd.DataFrame([{"_t": center_text}])).mark_text(
+            text=center_text, radius=0, fontSize=13, fontWeight=700, color="#0f172a"
+        )
+        chart = arc + text
+    else:
+        chart = arc
+    return chart.properties(height=height)
+
+
 st.set_page_config(page_title="AI 가드레일 관제", page_icon="🛡️", layout="wide")
+st.html(f"<style>{STYLE}</style>")
 
 
 def client() -> OpsClient:
@@ -159,7 +212,7 @@ def dashboard() -> None:
             with col.container(border=True):
                 st.metric(STATUS_STYLE[key][0], s["status_counts"][key])
         st.caption(f"기준 {kst(s['as_of'])} · 적재 지연 {s['ingestion_lag_seconds']}초 · 10초마다 갱신")
-        a, b, c = st.columns(3)
+        a, b, c = st.columns([1, 1, 1.35])
         with a.container(border=True):
             st.markdown("**상태별 이벤트 수**")
             frame = pd.DataFrame({"상태": [STATUS_STYLE[k][0] for k in STATUSES],
@@ -175,21 +228,36 @@ def dashboard() -> None:
             else:
                 st.info("적중한 룰이 없습니다.")
         with c.container(border=True):
-            st.markdown("**차단을 만든 계층** (규칙 · AI 판별)")
-            rows = [{"단계": name, "계층": OVERLAP_STYLE[k][0], "건수": n}
+            head_col, sel_col = st.columns([1.6, 1.0])
+            with head_col:
+                st.markdown("**차단을 만든 계층** (규칙 · AI 판별)")
+            with sel_col:
+                stage_sel = st.selectbox(
+                    "보기",
+                    ["입력", "전체 표"],
+                    key="dash-stage-view",
+                    label_visibility="collapsed",
+                )
+            overlap = s.get("layer_overlap", {})
+            rows = [{"단계": name, "계층": OVERLAP_STYLE[k][0], "건수": n,
+                     "비율": f"{n / sum(overlap[stage].values()) * 100:.1f}%"}
                     for stage, name in (("input", "입력"), ("tool", "도구 결과"), ("output", "출력"))
-                    for k, n in (s.get("layer_overlap", {}).get(stage) or {}).items() if n]  # fmt: skip
-            if rows:
-                colors = {v[0]: v[1] for v in OVERLAP_STYLE.values()}
-                chart = alt.Chart(pd.DataFrame(rows)).mark_bar(cornerRadius=5).encode(
-                    x=alt.X("건수:Q", stack="normalize", title=None, axis=alt.Axis(format="%")),
-                    y=alt.Y("단계:N", sort=["입력", "도구 결과", "출력"], title=None),
-                    color=alt.Color("계층:N", scale=alt.Scale(domain=list(colors), range=list(colors.values())),
-                                    legend=alt.Legend(orient="bottom", title=None)),
-                    tooltip=["단계", "계층", "건수"]).properties(height=200)  # fmt: skip
-                st.altair_chart(chart, use_container_width=True)
-            else:
+                    for k, n in (overlap.get(stage) or {}).items() if n]  # fmt: skip
+            if not rows:
                 st.info("이 기간에 두 계층이 모두 기록된 차단이 없습니다.")
+            elif stage_sel == "입력":
+                inputs = [r for r in rows if r["단계"] == "입력"]
+                colors = {v[0]: v[1] for v in OVERLAP_STYLE.values()} | {"차단 없음": "#e2e8f0"}
+                st.altair_chart(donut(pd.DataFrame(inputs or [{"계층": "차단 없음", "건수": 1, "비율": ""}]), "계층",
+                                      "건수", colors, f"{sum(r['건수'] for r in inputs)}건", ["계층", "건수", "비율"],
+                                      height=175, inner_radius=36, outer_radius=60, show_legend=False),
+                                use_container_width=True)  # fmt: skip
+                st.caption("범례: ⬛ **규칙만** · 🟪 **AI 판별만** · 🟩 **둘 다** · 🩶 **규칙만(AI 실패)**")
+                others = {name: sum(r["건수"] for r in rows if r["단계"] == name) for name in ("도구 결과", "출력")}
+                if any(others.values()):
+                    st.caption("기타 단계 차단: " + " · ".join(f"{k} {v}건" for k, v in others.items()))
+            else:  # "전체 표"
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch", height=175)
         p95 = s["latency_p95_ms"]
         st.caption(f"서버 처리 시간 P95: {p95:.0f} ms (모델 생성 포함)" if p95 is not None else "서버 처리 시간: 데이터 없음")
         checks = ready["checks"]
@@ -240,7 +308,7 @@ def _events_list(start: str, end: str, session: str | None, status: str | None) 
     frame = pd.DataFrame([{"시각(KST)": kst(e["occurred_at"]), "source": e["source"], "status": e["status"],
                            "stage": e["stage"], "total_ms": e["total_ms"], "요약": e["summary_redacted"],
                            "event_id": e["event_id"], "대화(세션) ID": e["session_id"] or ""} for e in rows])  # fmt: skip
-    st.dataframe(frame, hide_index=True, use_container_width=True)
+    st.dataframe(frame, hide_index=True, width="stretch")
     st.caption("event_id → 위 'event_id로 바로 보기'(감사 상세) · 대화(세션) ID → 위 필터에 넣으면 그 대화 전체를 봅니다.")
 
 
@@ -310,14 +378,25 @@ def layer_breakdown(e: dict) -> None:
     for r in rows:
         r["비중"] = f"{r['ms'] / total * 100:.1f}%"
     table, chart = st.columns([3, 2])
-    table.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+    table.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     verdict_colors = {"🛑 차단": "#b91c1c", "✅ 통과": "#047857", "⚠️ 판별 실패": "#b45309", "—": "#94a3b8"}
-    frame = pd.DataFrame([{"계층": r["계층"], "판정": r["판정"].replace("— 미실행", "—"), "ms": r["ms"]} for r in rows])
-    chart.altair_chart(alt.Chart(frame).mark_bar(cornerRadius=5).encode(
-        x=alt.X("ms:Q", title="처리 시간 (ms)"), y=alt.Y("계층:N", sort=None, title=None),
-        color=alt.Color("판정:N", scale=alt.Scale(domain=list(verdict_colors), range=list(verdict_colors.values())),
-                        legend=alt.Legend(orient="bottom", title=None)),
-        tooltip=["계층", "판정", "ms"]).properties(height=34 * len(frame) + 40), use_container_width=True)  # fmt: skip
+    frame = pd.DataFrame([
+        {"계층": r["계층"], "판정": r["판정"].replace("— 미실행", "—"), "ms": r["ms"], "비중": r["비중"]}
+        for r in rows if r["ms"] > 0
+    ])
+    donut_chart = donut(
+        frame,
+        label_field="계층",
+        value_field="ms",
+        color_field="판정",
+        colors=verdict_colors,
+        center_text=f"{total:,.0f} ms",
+        tooltip=["계층", "판정", "ms", "비중"],
+        height=240,
+        inner_radius=50,
+        outer_radius=80,
+    )
+    chart.altair_chart(donut_chart, use_container_width=True)
     for stage, label in STAGE_NAMES.items():
         rule = layers.get(f"{stage}_rules", {}).get("verdict")
         judge = layers.get(f"{stage}_judge", {}).get("verdict")
@@ -401,7 +480,7 @@ def rules_page() -> None:
     detail = client().get(f"/api/v1/rulesets/{choice['id']}")
     rules = pd.DataFrame(detail["rules"])
     editable = admin and detail["state"] == "draft"
-    edited = st.data_editor(rules, disabled=not editable, hide_index=True, use_container_width=True,
+    edited = st.data_editor(rules, disabled=not editable, hide_index=True, width="stretch",
                             key=f"rules-{choice['id']}") if editable else st.dataframe(rules, hide_index=True)  # fmt: skip
     policy_text = st.text_area("정책(JSON, 더 엄격한 값만 허용)", json.dumps(detail["policy"], ensure_ascii=False),
                                disabled=not editable)  # fmt: skip
@@ -475,6 +554,27 @@ def report_page() -> None:
     preview = st.session_state.get("report_preview")
     if preview:
         st.write(f"이벤트 {preview['total']}건 · 적재 지연 {preview['ingestion_lag_seconds']}초 · 기준 {kst(preview['as_of'])}")
+        counts = preview["status_counts"]
+        total = preview["total"]
+        if total > 0:
+            status_colors = {v[0]: v[1] for v in STATUS_STYLE.values()}
+            status_rows = [
+                {"상태": STATUS_STYLE[k][0], "건수": counts.get(k, 0), "비율": f"{counts.get(k, 0) / total * 100:.1f}%"}
+                for k in STATUSES if counts.get(k, 0) > 0
+            ]
+            if status_rows:
+                chart = donut(
+                    pd.DataFrame(status_rows),
+                    label_field="상태",
+                    value_field="건수",
+                    colors=status_colors,
+                    center_text=f"{total}건",
+                    tooltip=["상태", "건수", "비율"],
+                    height=220,
+                    inner_radius=48,
+                    outer_radius=76,
+                )
+                st.altair_chart(chart, use_container_width=True)
         st.dataframe(pd.DataFrame([preview["status_counts"]]), hide_index=True)
         if st.button("PDF 생성"):
             with shown_errors():
@@ -650,7 +750,7 @@ def lab_page() -> None:
                 for r in run["results"]]  # fmt: skip
         if rows:
             frame = pd.DataFrame(rows)
-            st.dataframe(frame, hide_index=True, use_container_width=True)
+            st.dataframe(frame, hide_index=True, width="stretch")
             st.download_button("CSV 다운로드", frame.to_csv(index=False).encode("utf-8-sig"),
                                file_name=f"lab-ab-{chosen[:8]}.csv", mime="text/csv")  # fmt: skip
         st.caption("일괄 비교는 노출 판정만 보여 줍니다(답변 원문은 위 단건 비교에서). LAB 결과는 운영 탐지율이 아닙니다.")
@@ -765,13 +865,13 @@ else:
     with st.sidebar:
         st.markdown("### 🛡️ GUARDRAIL OPS")
         lab_env = client().user["role"] == "admin" and lab_available()  # the lab check is admin-only
-        st.caption("AI 보안 가드레일 관제" + (" · 🧪 LAB 환경" if lab_env else ""))
-        st.write(f"**{client().user['email']}** ({client().user['role']})")
-        st.success("🛡️ 보안 보호 활성")
+        st.caption(f"👤 {client().user['email']} ({client().user['role']})" + (" · 🧪 LAB" if lab_env else ""))
         if client().user["role"] == "admin" and lab_available():
             PAGES["LAB ON/OFF 비교"] = lab_page
             PAGES["정규식 제안"] = suggestions_page
         page = st.radio("메뉴", list(PAGES), label_visibility="collapsed", key="page")
+        st.divider()
+        st.success("🛡️ 보안 보호 활성")
         if st.button("모든 기기 로그아웃"):
             client().logout()
             st.session_state.clear()

@@ -1,0 +1,301 @@
+/* Ops Dashboard Fixed Stylesheet (DES-004 SCR-O01~O06)
+ * Brand-aligned with customer web: Charcoal #0f172a, Sand #f8f6f2, Guardrail Emerald #047857.
+ * Security: Strictly self-contained, no external fonts or CDN, no data injection.
+ */
+
+:root {
+  --ops-ink: #0f172a;
+  --ops-ink-soft: #334155;
+  --ops-muted: #64748b;
+  --ops-line: #e2e8f0;
+  --ops-sand: #f8f6f2;
+  --ops-sand-card: #fdfbf7;
+  --ops-sand-dark: #ebe3d5;
+  --ops-gold: #c5a880;
+
+  --ops-shield: #047857;
+  --ops-danger: #b91c1c;
+  --ops-warn: #b45309;
+  --ops-info: #1d4ed8;
+
+  --ops-radius: 12px;
+  --ops-radius-sm: 8px;
+  --ops-shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.04);
+  --ops-shadow-md: 0 4px 14px rgba(15, 23, 42, 0.06);
+
+  font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ---------------------------------------------------------------- Global & Typography */
+html, body {
+  color: var(--ops-ink-soft);
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, [data-testid="stHeading"] h1 {
+  font-size: 26px !important;
+  font-weight: 850 !important;
+  color: var(--ops-ink) !important;
+  letter-spacing: -0.03em !important;
+  margin-bottom: 8px !important;
+}
+
+h2, [data-testid="stHeading"] h2 {
+  font-size: 20px !important;
+  font-weight: 750 !important;
+  color: var(--ops-ink) !important;
+  letter-spacing: -0.02em !important;
+  margin-top: 18px !important;
+  margin-bottom: 8px !important;
+}
+
+h3, [data-testid="stHeading"] h3 {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: var(--ops-ink) !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* ---------------------------------------------------------------- Sidebar Styling */
+section[data-testid="stSidebar"] {
+  background-color: var(--ops-sand) !important;
+  border-right: 1px solid var(--ops-line) !important;
+  box-shadow: inset -1px 0 0 rgba(15, 23, 42, 0.03);
+}
+
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+  padding-top: 1rem !important;
+  padding-left: 0.85rem !important;
+  padding-right: 0.85rem !important;
+}
+
+section[data-testid="stSidebar"] h3,
+section[data-testid="stSidebar"] [data-testid="stHeading"] h3 {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.2rem !important;
+  font-size: 17px !important;
+  font-weight: 850 !important;
+}
+
+section[data-testid="stSidebar"] .stCaption {
+  margin-bottom: 0.75rem !important;
+  font-size: 12px !important;
+}
+
+section[data-testid="stSidebar"] hr {
+  margin: 14px 0 !important;
+  border-color: var(--ops-line) !important;
+}
+
+/* Sidebar Radio Menu as Clean Rectangular Cards */
+section[data-testid="stSidebar"] [data-testid="stRadio"] {
+  gap: 0;
+  width: 100% !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] > label,
+section[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"] {
+  display: none !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  width: 100% !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label {
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
+  background: #ffffff !important;
+  border: 1px solid var(--ops-line) !important;
+  border-radius: 8px !important;
+  padding: 9px 13px !important;
+  margin: 0 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03) !important;
+  box-sizing: border-box !important;
+}
+
+/* Hide Radio Dot Indicator cleanly */
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label input[type="radio"] {
+  position: absolute !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label > div:first-child:not([data-testid="stMarkdownContainer"]) {
+  display: none !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:hover {
+  border-color: #94a3b8 !important;
+  background: #f8fafc !important;
+  transform: translateX(2px) !important;
+}
+
+/* Active / Checked Radio Item */
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
+  background: var(--ops-ink) !important;
+  border-color: var(--ops-ink) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16) !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p,
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) div,
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) span {
+  color: #ffffff !important;
+  font-weight: 750 !important;
+}
+
+/* ---------------------------------------------------------------- Container Cards */
+[data-testid="stVerticalBlockBorderWrapper"] > div {
+  background: #ffffff;
+  border: 1px solid var(--ops-line) !important;
+  border-radius: var(--ops-radius) !important;
+  padding: 18px 20px !important;
+  box-shadow: var(--ops-shadow-sm);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+[data-testid="stVerticalBlockBorderWrapper"] > div:hover {
+  border-color: #cbd5e1 !important;
+  box-shadow: var(--ops-shadow-md);
+}
+
+/* ---------------------------------------------------------------- Metrics Cards */
+[data-testid="stMetric"] {
+  background: #ffffff;
+  border-radius: var(--ops-radius);
+  padding: 4px 6px;
+}
+
+[data-testid="stMetricLabel"] {
+  font-size: 12px !important;
+  font-weight: 750 !important;
+  color: var(--ops-muted) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+[data-testid="stMetricValue"] {
+  font-size: 28px !important;
+  font-weight: 850 !important;
+  color: var(--ops-ink) !important;
+  letter-spacing: -0.02em;
+  line-height: 1.2 !important;
+}
+
+/* ---------------------------------------------------------------- Buttons */
+[data-testid="stButton"] button,
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stDownloadButton"] button {
+  font-weight: 650 !important;
+  border-radius: var(--ops-radius-sm) !important;
+  border: 1px solid #cbd5e1 !important;
+  background: #ffffff !important;
+  color: var(--ops-ink) !important;
+  padding: 7px 16px !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: all 0.15s ease !important;
+  letter-spacing: -0.01em;
+}
+
+[data-testid="stButton"] button:hover,
+[data-testid="stFormSubmitButton"] button:hover,
+[data-testid="stDownloadButton"] button:hover {
+  border-color: var(--ops-ink) !important;
+  background: #f8fafc !important;
+  color: #000000 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(15, 23, 42, 0.08);
+}
+
+[data-testid="stButton"] button[kind="primary"],
+[data-testid="stFormSubmitButton"] button[kind="primary"] {
+  background: var(--ops-ink) !important;
+  border-color: var(--ops-ink) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.15);
+}
+
+[data-testid="stButton"] button[kind="primary"]:hover,
+[data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
+  background: #1e293b !important;
+  border-color: #1e293b !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2);
+}
+
+:focus-visible {
+  outline: 3px solid #2563eb !important;
+  outline-offset: 2px !important;
+}
+
+/* ---------------------------------------------------------------- Form Inputs & Selects */
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stSelectbox"] div[data-baseweb="select"] {
+  border-radius: var(--ops-radius-sm) !important;
+  border: 1px solid #cbd5e1 !important;
+  background: #ffffff !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+[data-testid="stTextInput"] input:focus,
+[data-testid="stTextArea"] textarea:focus {
+  border-color: var(--ops-ink) !important;
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* ---------------------------------------------------------------- Alerts & Callouts */
+[data-testid="stAlert"] {
+  border-radius: var(--ops-radius) !important;
+  padding: 12px 18px !important;
+  box-shadow: var(--ops-shadow-sm);
+  border-width: 1px !important;
+}
+
+/* ---------------------------------------------------------------- Tabs */
+[data-testid="stTabs"] button[role="tab"] {
+  font-weight: 650 !important;
+  font-size: 14.5px !important;
+  color: var(--ops-muted) !important;
+  border-bottom: 2.5px solid transparent !important;
+  padding: 8px 18px !important;
+  transition: all 0.15s ease;
+}
+
+[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+  color: var(--ops-ink) !important;
+  border-bottom-color: var(--ops-ink) !important;
+}
+
+/* ---------------------------------------------------------------- DataFrames & Tables */
+[data-testid="stDataFrame"] {
+  border-radius: var(--ops-radius-sm);
+  border: 1px solid var(--ops-line);
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- Responsive & Motion */
+@media (max-width: 899px) {
+  [data-testid="stHorizontalBlock"] {
+    flex-wrap: wrap !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
