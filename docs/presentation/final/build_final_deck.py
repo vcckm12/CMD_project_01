@@ -1048,7 +1048,7 @@ tb_h = s12.shapes.add_textbox(Inches(1.0), Inches(1.68), Inches(2.4), Inches(0.3
 tf_h = tb_h.text_frame
 tf_h.margin_left = tf_h.margin_right = tf_h.margin_top = tf_h.margin_bottom = 0
 p_h = tf_h.paragraphs[0]
-p_h.text = "공정 단계 \\ 주차"
+p_h.text = "공정 단계 / 주차"
 p_h.font.name = FONT_MAIN
 p_h.font.size = Pt(11)
 p_h.font.bold = True
