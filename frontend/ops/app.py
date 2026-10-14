@@ -556,26 +556,39 @@ def report_page() -> None:
         st.write(f"이벤트 {preview['total']}건 · 적재 지연 {preview['ingestion_lag_seconds']}초 · 기준 {kst(preview['as_of'])}")
         counts = preview["status_counts"]
         total = preview["total"]
-        if total > 0:
-            status_colors = {v[0]: v[1] for v in STATUS_STYLE.values()}
-            status_rows = [
-                {"상태": STATUS_STYLE[k][0], "건수": counts.get(k, 0), "비율": f"{counts.get(k, 0) / total * 100:.1f}%"}
-                for k in STATUSES if counts.get(k, 0) > 0
-            ]
-            if status_rows:
-                chart = donut(
-                    pd.DataFrame(status_rows),
-                    label_field="상태",
-                    value_field="건수",
-                    colors=status_colors,
-                    center_text=f"{total}건",
-                    tooltip=["상태", "건수", "비율"],
-                    height=220,
-                    inner_radius=48,
-                    outer_radius=76,
-                )
-                st.altair_chart(chart, use_container_width=True)
-        st.dataframe(pd.DataFrame([preview["status_counts"]]), hide_index=True)
+        st.markdown("**처리 결과 통계** (단위: 이벤트 수)")
+        status_colors = {v[0]: v[1] for v in STATUS_STYLE.values()}
+        status_rows = [
+            {"상태": STATUS_STYLE[k][0], "건수": counts.get(k, 0), "비율": f"{counts.get(k, 0) / total * 100:.1f}%" if total > 0 else "0.0%"}
+            for k in STATUSES if counts.get(k, 0) > 0
+        ]
+        if not status_rows:
+            status_rows = [{"상태": "데이터 없음", "건수": 0, "비율": "0.0%"}]
+            status_colors["데이터 없음"] = "#e2e8f0"
+
+        c1, c2 = st.columns([1, 1.2])
+        with c1:
+            chart = donut(
+                pd.DataFrame(status_rows),
+                label_field="상태",
+                value_field="건수",
+                colors=status_colors,
+                center_text=f"{total}건",
+                tooltip=["상태", "건수", "비율"],
+                height=200,
+                inner_radius=44,
+                outer_radius=70,
+            )
+            st.altair_chart(chart, use_container_width=True)
+        with c2:
+            st.dataframe(
+                pd.DataFrame([
+                    {"상태": STATUS_STYLE[k][0], "건수": f"{counts.get(k, 0):,}건", "비율": f"{counts.get(k, 0) / total * 100:.1f}%" if total > 0 else "0.0%"}
+                    for k in STATUSES
+                ]),
+                hide_index=True,
+                width="stretch",
+            )
         if st.button("PDF 생성"):
             with shown_errors():
                 pdf = client().request("GET", "/api/v1/audit/report", params={k: v for k, v in

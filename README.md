@@ -93,7 +93,7 @@ docker compose up -d --wait nginx
 docker build -t ag-e2e -f scripts/e2e.Dockerfile scripts      # Playwright 실행 이미지(최초 1회)
 HIP=$(docker run --rm ag-e2e getent hosts host.docker.internal | awk '{print $1}')
 docker run --rm -e EDGE_IP=$HIP -e SHOP_URL=https://shop.example.internal:8443 -v "$PWD/scripts:/s" ag-e2e python /s/e2e_web.py
-docker run --rm -e EDGE_IP=$HIP -e OPS_URL=https://ops.example.internal:8443 -e OPS_EMAIL=<lab 관리자> -e OPS_PASSWORD=<비밀번호>   -e EVENT_ID=<입력 단계에서 차단된 최근 event_id> -v "$PWD/scripts:/s" ag-e2e python /s/e2e_ops.py
+docker run --rm -e EDGE_IP=$HIP -e OPS_URL=https://ops.example.internal:8443 -e OPS_EMAIL=<lab 관리자> -e OPS_PASSWORD=<비밀번호>   -e EVENT_ID=<고객 질문 자체가 입력 검사에서 차단된 최근 event_id (도구 결과 차단 제외)> -v "$PWD/scripts:/s" ag-e2e python /s/e2e_ops.py
 docker run --rm -e EDGE_IP=$HIP -e OPS_EMAIL=<lab 관리자> -e OPS_PASSWORD=<비밀번호> -v "$PWD/scripts:/s" -v "$PWD/tmp:/out" ag-e2e python /s/e2e_lab.py
 ```
 
