@@ -50,6 +50,23 @@ LAB_ADMIN_PASSWORD='12자 이상 비밀번호' sh scripts/lab_up.sh
 docker compose --env-file .env.lab down      # 종료 (데이터 유지, 삭제는 down -v)
 ```
 
+### 코드 수정 후 반영(재실행)
+
+`lab_up.sh`는 처음 한 번만 실행합니다. 이후에는 고친 부분만 다시 띄웁니다. 아래는 LAB(8443) 기준입니다. 운영은 `--env-file .env.lab`를 빼고 실행합니다.
+
+| 고친 곳 | 반영 방법 |
+|---|---|
+| 쇼핑몰 `frontend/shop/` (HTML·CSS·JS·그림) | 명령 없이 저장만 하면 됩니다(폴더가 nginx에 직접 연결됨). 브라우저에서 **Ctrl+F5** |
+| 관제 `frontend/ops/` (`app.py`, `style.css`, `.streamlit/`) | `docker compose --env-file .env.lab up -d --build --wait streamlit` 후 Ctrl+F5 |
+| 서버 `backend/app/` | `docker compose --env-file .env.lab up -d --build --wait api audit-worker scheduler` |
+| DB 마이그레이션 `backend/migrations/` | `docker compose --env-file .env.lab build migrate && docker compose --env-file .env.lab run --rm migrate` |
+| nginx 설정 `deployment/nginx/`, 인증서 `secrets/tls/` | `docker compose --env-file .env.lab restart nginx` |
+| 전부 한 번에 | `docker compose --env-file .env.lab up -d --build --wait` |
+
+- 잘 떴는지 확인: `docker compose --env-file .env.lab ps` 결과에서 모두 `Up`(healthy)이어야 합니다.
+- PC나 Docker Desktop을 다시 켜면 컨테이너는 자동으로 다시 뜹니다(`restart: unless-stopped`). 안 떴으면 위의 "전부 한 번에" 명령을 실행합니다.
+- 반영 후 브라우저 E2E(아래 절)로 확인합니다.
+
 HTTPS 진입점 (내부망 1단계, D-23):
 
 ```bash

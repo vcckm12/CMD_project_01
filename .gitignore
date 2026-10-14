@@ -58,3 +58,7 @@ reference/PayloadsAllTheThings-master/
 *.key
 *.crt
 secrets/
+
+# Office lock files and local scratch output
+~$*
+tmp/

@@ -230,9 +230,10 @@ def test_prefilter_never_changes_the_verdict():
         SNAPSHOT,
         rules=MappingProxyType({k: dataclasses.replace(v, prefilter=None) for k, v in SNAPSHOT.rules.items()}),
     )
+    roomy = InputGuardrailEngine(budget_ms=5000, per_call_ms=1000)  # compares verdicts, not speed: no load flakes
     for text in _corpus():
-        with_gate = ENGINE.inspect([InputMessage("user", text)], None, SNAPSHOT)
-        without_gate = ENGINE.inspect([InputMessage("user", text)], None, unfiltered)
+        with_gate = roomy.inspect([InputMessage("user", text)], None, SNAPSHOT)
+        without_gate = roomy.inspect([InputMessage("user", text)], None, unfiltered)
         assert with_gate.allowed == without_gate.allowed, text
         assert {h.rule_id for h in with_gate.hits} == {h.rule_id for h in without_gate.hits}, text
 
