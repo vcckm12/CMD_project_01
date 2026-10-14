@@ -172,7 +172,10 @@ async function homeView() {
   }
   const search = async () => {
     try {
-      items = (await api.get(`/api/v1/products?limit=20&q=${encodeURIComponent(q.value.trim())}`)).data.items;
+      const term = q.value.trim();
+      items = (await api.get(`/api/v1/products?limit=20&q=${encodeURIComponent(term)}`)).data.items;
+      // Test fixtures (SKU E2E-*, e.g. the XSS probe) only appear when searched for, not in the browse list.
+      if (!term) items = items.filter((p) => !p.sku.startsWith("E2E-"));
       render();
     } catch (err) {
       mount(results, errorBox(err));
