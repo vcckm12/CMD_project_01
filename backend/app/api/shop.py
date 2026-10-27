@@ -39,23 +39,17 @@ async def products(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> JSONResponse:
     async with request.app.state.pools.chat.connection() as conn:
-        items = await dao.search_products(conn, q.strip(), limit)
+        items = await dao.catalog(conn, q.strip(), limit)
     return ok(request, {"items": items, "next_cursor": None})
 
 
 @router.get("/products/{product_id}")
 async def product(request: Request, product_id: uuid.UUID, ctx: Reader) -> JSONResponse:
     async with request.app.state.pools.chat.connection() as conn:
-        row = await (
-            await conn.execute(
-                "SELECT id, sku, name, description, price_krw, stock_count FROM commerce.products"
-                " WHERE id = %s AND is_active",
-                (product_id,),
-            )
-        ).fetchone()
-    if row is None:
+        found = await dao.catalog_item(conn, product_id)
+    if found is None:
         raise ApiError(404, "NOT_FOUND")
-    return ok(request, {**row, "id": str(row["id"])})
+    return ok(request, found)
 
 
 @router.get("/orders")
@@ -69,6 +63,13 @@ async def orders(request: Request, ctx: Reader, limit: Annotated[int, Query(ge=1
 async def order(request: Request, order_id: uuid.UUID, ctx: Reader) -> JSONResponse:
     async with request.app.state.pools.chat.connection() as conn:
         found = await dao.get_order(conn, ctx.user_id, order_id)
+        if found is not None:  # the web shows product pictures, keyed by SKU
+            ids = [uuid.UUID(i["product_id"]) for i in found["items"]]
+            cur = await conn.execute("SELECT id, sku FROM commerce.products WHERE id = ANY(%s)", (ids,))
+            rows = await cur.fetchall()
+            skus = {str(r["id"]): r["sku"] for r in rows}
+            for i in found["items"]:
+                i["sku"] = skus.get(i["product_id"], "")
     if found is None:
         raise ApiError(404, "NOT_FOUND")  # missing and not-owned look the same
     return ok(request, found)

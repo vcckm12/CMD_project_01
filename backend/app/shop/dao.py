@@ -34,6 +34,45 @@ async def search_products(conn: AsyncConnection, q: str, limit: int) -> list[dic
         ]  # fmt: skip
 
 
+CATALOG_COLUMNS = (
+    "id, sku, name, description, price_krw, stock_count, brand, color, sizes, material, list_price_krw,"
+    " rating, review_count, tags"
+)
+
+
+def _catalog_view(r: dict) -> dict:
+    """Web catalog fields (display only; the assistant's tools keep using search_products)."""
+    return {
+        "id": str(r["id"]), "sku": r["sku"], "name": r["name"], "description": r["description"],
+        "price_krw": r["price_krw"], "list_price_krw": r["list_price_krw"], "stock_count": r["stock_count"],
+        "brand": r["brand"], "color": r["color"], "sizes": [x for x in r["sizes"].split(",") if x],
+        "material": r["material"], "rating": float(r["rating"]) if r["rating"] is not None else None,
+        "review_count": r["review_count"], "tags": [x for x in r["tags"].split(",") if x],
+    }  # fmt: skip
+
+
+async def catalog(conn: AsyncConnection, q: str, limit: int) -> list[dict]:
+    pattern = f"%{_like_escape(q)}%"
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            f"SELECT {CATALOG_COLUMNS} FROM commerce.products"  # noqa: S608 - fixed column list
+            " WHERE is_active AND (name ILIKE %s ESCAPE '\\' OR sku ILIKE %s ESCAPE '\\' OR brand ILIKE %s ESCAPE '\\')"
+            " ORDER BY sku, id LIMIT %s",
+            (pattern, pattern, pattern, limit),
+        )
+        return [_catalog_view(r) for r in await cur.fetchall()]
+
+
+async def catalog_item(conn: AsyncConnection, product_id: uuid.UUID) -> dict | None:
+    async with conn.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            f"SELECT {CATALOG_COLUMNS} FROM commerce.products WHERE id = %s AND is_active",  # noqa: S608
+            (product_id,),
+        )
+        row = await cur.fetchone()
+    return _catalog_view(row) if row else None
+
+
 async def get_order(conn: AsyncConnection, user_id: uuid.UUID, order_id: uuid.UUID) -> dict | None:
     async with conn.cursor(row_factory=dict_row) as cur:
         await cur.execute(
