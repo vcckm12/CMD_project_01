@@ -68,7 +68,7 @@ def main() -> int:
         expect(page.get_by_text("장바구니가 비어 있습니다.")).to_be_visible()
 
         step("product list, propose adding to cart, confirm")
-        page.get_by_role("link", name="상품·AI").click()
+        page.get_by_role("link", name="쇼핑").click()
         page.fill("#q", "레더 벨트")
         page.get_by_role("button", name="검색").click()
         card = page.locator("article.product", has_text="레더 벨트").first
@@ -87,7 +87,7 @@ def main() -> int:
         assert page.evaluate("Object.keys(localStorage).length") == 0, "nothing may be stored in localStorage"
 
         step("chat: real model answer, then a blocked attack")
-        page.get_by_role("link", name="상품·AI").click()
+        page.get_by_role("link", name="쇼핑").click()
         page.fill("#prompt", "베이직 스니커즈 가격 알려줘")
         page.get_by_role("button", name="전송").click()
         # Server stage events are shown while the answer is prepared (D-35).

@@ -50,13 +50,12 @@ function navLink(path, label) {
 function layout(...content) {
   const user = api.session.user;
   return [
-    h("div", { class: "promo" }, `${krw(FREE_SHIPPING_FROM)} 이상 무료배송 · 신규 가입 5,000원 쿠폰 · 모든 AI 상담은 보안 검사를 거칩니다`),
+    h("div", { class: "promo" }, `${krw(FREE_SHIPPING_FROM)} 이상 무료배송 · 신규 가입 5,000원 쿠폰 · 수령 후 7일 이내 교환·반품`),
     h("header", { class: "topbar" },
-      h("div", { class: "brand" }, link("/", "GUARDRAIL FASHION"), h("small", {}, "AI SHOPPING ASSISTANT")),
-      h("span", { class: "badge", title: "운영 환경에서는 보안 보호를 끌 수 없습니다" }, "🛡️ 보안 보호 활성"),
+      h("div", { class: "brand" }, link("/", "GUARDRAIL FASHION")),
       user
         ? h("nav", { "aria-label": "주 메뉴" },
-            navLink("/", "상품·AI"), navLink("/cart", "장바구니"), navLink("/orders", "주문"), navLink("/settings/clients", "연결"),
+            navLink("/", "쇼핑"), navLink("/cart", "장바구니"), navLink("/orders", "주문"), navLink("/settings/clients", "연결"),
             h("button", { class: "link", onclick: onLogout }, "모든 기기 로그아웃"))
         : null),
     user
@@ -67,11 +66,11 @@ function layout(...content) {
     h("main", { id: "main", tabindex: "-1" }, ...content),
     h("footer", {}, h("div", { class: "inner footer-grid" },
       h("div", {}, h("b", {}, "GUARDRAIL FASHION"),
-        h("p", {}, "입력·실행·출력 3단계 AI 보안 가드레일 적용"),
-        h("p", { class: "muted" }, "AI 답변은 부정확할 수 있습니다. 상품·주문 정보와 변경 내용을 직접 확인해 주세요.")),
+        h("p", {}, "상담 대화는 서버에서 보안 검사 후 답변합니다"),
+        h("p", { class: "muted" }, "상담 답변은 자동 생성되어 부정확할 수 있습니다. 상품·주문 정보와 변경 내용을 직접 확인해 주세요.")),
       h("div", {}, h("b", {}, "고객센터 1500-0000"),
         h("p", {}, "평일 10:00 ~ 17:00 (점심 12:00 ~ 13:00)"),
-        h("p", { class: "muted" }, "주말·공휴일 휴무 · AI 도우미는 24시간 이용 가능")),
+        h("p", { class: "muted" }, "주말·공휴일 휴무 · 채팅 상담은 24시간 이용 가능")),
       h("div", {}, h("b", {}, "쇼핑 안내"),
         h("p", {}, `${krw(FREE_SHIPPING_FROM)} 이상 무료배송 (미만 ${krw(SHIPPING_FEE)})`),
         h("p", { class: "muted" }, "수령 후 7일 이내 교환·반품 · 시연용 가상 쇼핑몰입니다")))),
@@ -83,7 +82,13 @@ function layout(...content) {
 const CATEGORIES = [["OUT", "아우터"], ["TOP", "상의"], ["BTM", "하의"], ["SHO", "신발"], ["ACC", "잡화"]];
 const FREE_SHIPPING_FROM = 50000;
 const SHIPPING_FEE = 3000;
-const PHOTOS = new Set([]);
+const PHOTOS = new Set([
+  "GF-ACC-001", "GF-ACC-002", "GF-ACC-003", "GF-ACC-004", "GF-ACC-005", "GF-ACC-006", "GF-ACC-007", "GF-ACC-008",
+  "GF-BTM-001", "GF-BTM-002", "GF-BTM-003", "GF-BTM-004", "GF-BTM-005",
+  "GF-OUT-001", "GF-OUT-002", "GF-OUT-003", "GF-OUT-004", "GF-OUT-005", "GF-OUT-006",
+  "GF-SHO-001", "GF-SHO-002", "GF-SHO-003", "GF-SHO-004",
+  "GF-TOP-001", "GF-TOP-002", "GF-TOP-003", "GF-TOP-004", "GF-TOP-005", "GF-TOP-006", "GF-TOP-007"
+]);
 const ARTWORK = new Set(["GF-ACC-001", "GF-ACC-002", "GF-ACC-003", "GF-ACC-004", "GF-BTM-001", "GF-BTM-002", "GF-OUT-001", "GF-OUT-002", "GF-SHO-001", "GF-TOP-001", "GF-TOP-002", "GF-TOP-003"]);
 
 function categoryOf(sku) {
@@ -92,7 +97,7 @@ function categoryOf(sku) {
 }
 
 function productImage(sku, alt = "") {
-  const src = PHOTOS.has(sku) ? `/img/products/${sku}.jpg` : `/img/products/${ARTWORK.has(sku) ? sku : "default"}.svg`;
+  const src = PHOTOS.has(sku) ? `/img/products/${sku}.jpg?v=4` : `/img/products/${ARTWORK.has(sku) ? sku : "default"}.svg`;
   const img = h("img", { class: "thumb", src, alt, loading: "lazy", width: 320, height: 320 });
   img.addEventListener("error", () => { img.src = "/img/products/default.svg"; }, { once: true });
   return img;
@@ -179,17 +184,17 @@ function loginView(params) {
       }
     },
   },
-    h("h1", {}, "AI 쇼핑 도우미"), tabs,
+    h("h1", {}, "로그인"), tabs,
     h("label", { for: "email" }, "이메일"), email,
     h("label", { for: "password" }, "비밀번호 (회원가입 시 12자 이상)"), password,
     submit, message);
   setMode("login");
   const hero = h("div", { class: "auth-hero" },
     h("div", {}, h("div", { class: "kicker" }, "FW 2026 COLLECTION"),
-      h("h1", {}, "찾고, 묻고, 고르세요.", h("br"), "AI 도우미가 함께합니다."),
-      h("p", { class: "muted" }, "상품 추천부터 주문 조회, 장바구니 변경 제안까지.")),
+      h("h1", {}, "가을·겨울 신상품이", h("br"), "입고되었습니다."),
+      h("p", { class: "muted" }, "로그인하면 주문 조회와 채팅 상담을 이용할 수 있습니다.")),
     h("ul", {},
-      h("li", {}, "질문과 답변을 AI 보안 가드레일이 검사합니다"),
+      h("li", {}, "채팅 상담으로 사이즈·재고·쿠폰을 바로 확인할 수 있습니다"),
       h("li", {}, "본인 주문·장바구니만 조회됩니다"),
       h("li", {}, "변경은 확인 화면에서 승인해야 적용됩니다")));
   return layout(h("div", { class: "auth" }, hero, form));
@@ -255,12 +260,11 @@ async function homeView(params) {
   await search();
   const hero = h("div", { class: "hero" },
     h("div", { class: "kicker" }, "FW 2026 NEW ARRIVALS"),
-    h("h1", {}, "이번 시즌, 무엇이든 AI에게 물어보세요"),
-    h("p", {}, "사이즈·재고·쿠폰 확인부터 장바구니 담기까지. 모든 질문과 답변은 보안 가드레일이 검사합니다."),
+    h("h1", {}, "가볍게 걸치는 계절의 아우터"),
+    h("p", {}, "새로 들어온 코트·패딩·니트를 만나 보세요. 사이즈와 재고는 오른쪽 상담 창에서 바로 물어볼 수 있습니다."),
     h("div", { class: "hero-cta" },
       link("/?cat=아우터", "아우터 보러 가기", { class: "button light" }),
-      link("/?cat=SALE", "세일 상품 보기", { class: "button ghost" })),
-    h("span", { class: "shield", "aria-hidden": "true" }, "🛡️"));
+      link("/?cat=SALE", "세일 상품 보기", { class: "button ghost" })));
   return layout(hero, h("div", { class: "shop" },
     h("div", {},
       showcase,
@@ -332,7 +336,7 @@ async function productView(productId) {
           h("dt", {}, "재고"), h("dd", { class: soldOut ? "soldout" : "" }, soldOut ? "품절" : `${p.stock_count}개 남음`)),
         h("div", { class: "row buy" }, qty,
           h("button", { class: "primary", disabled: soldOut, onclick: () => proposeChange("set_cart_item", { product_id: p.id, quantity: Number(qty.value) }) }, "장바구니 담기 제안"),
-          h("button", { type: "button", onclick: ask }, "💬 AI에게 물어보기")),
+          h("button", { type: "button", onclick: ask }, "이 상품 문의하기")),
         h("p", { class: "muted small" }, "사이즈는 상품 정보로만 안내되며, 장바구니에는 수량만 담깁니다. 변경은 확인 화면에서 승인해야 적용됩니다."))),
     h("section", { class: "card pdp-tabs" },
       h("h2", {}, "상품 설명"), h("p", { text: p.description || "-" }),
@@ -432,8 +436,8 @@ async function chatPanel() {
   }, "새 대화");
   return h("section", { class: "card chat", "aria-labelledby": "chat-title" },
     h("div", { class: "chat-head" },
-      h("div", { class: "row between" }, h("h2", { id: "chat-title" }, "💬 AI 도우미"), reset),
-      h("p", { class: "muted small" }, "🛡️ 질문·답변을 보안 검사합니다 · 개인정보를 가린 대화만 보관")),
+      h("div", { class: "row between" }, h("h2", { id: "chat-title" }, "쇼핑 상담"), reset),
+      h("p", { class: "muted small" }, "자동 응답 상담입니다 · 개인정보는 가린 뒤 보관합니다")),
     log, form);
 }
 
@@ -461,7 +465,7 @@ function renderReply(bubble, body) {
     return;
   }
   const node = h("div", {}, renderAnswer(body.content));
-  if (body.status === "masked") node.append(h("p", { class: "tag" }, "🔒 개인정보 보호를 위해 일부 내용을 가렸습니다."));
+  if (body.status === "masked") node.append(h("p", { class: "tag" }, "개인정보 보호를 위해 일부 내용을 가렸습니다."));
   if (body.status === "confirmation_required" && body.action) {
     node.append(h("div", { class: "confirm-card" },
       h("p", {}, `확인 기한: ${kst(body.action.expires_at)}`),
