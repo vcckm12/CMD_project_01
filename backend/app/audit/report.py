@@ -34,7 +34,7 @@ FONT_PATHS = (
 STATUS_MAP = {
     "success": ("정상 (Success)", "#047857"),
     "blocked": ("차단 (Blocked)", "#b91c1c"),
-    "masked": ("정화 (Masked)", "#b45309"),
+    "masked": ("가림 (Masked)", "#b45309"),
     "confirmation_required": ("승인 대기 (Pending)", "#1d4ed8"),
     "error": ("오류 (Error)", "#64748b"),
 }

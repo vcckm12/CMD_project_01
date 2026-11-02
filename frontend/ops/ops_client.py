@@ -101,6 +101,13 @@ class OpsClient:
             return r.content if raw else r.json()
         self._raise(r)
 
+    def ready(self) -> dict:
+        """Readiness checks; 503 (e.g. model server down) is a normal answer here, not a failure."""
+        r = self.http.get(f"{BACKEND_URL}/api/v1/health/ready", headers=self.headers, timeout=TIMEOUT)
+        if r.status_code not in (200, 503):
+            self._raise(r)
+        return r.json()["data"]
+
     def get(self, path: str, **params):
         return self.request("GET", path, params={k: v for k, v in params.items() if v not in (None, "")})["data"]
 

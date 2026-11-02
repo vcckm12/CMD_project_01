@@ -3,13 +3,13 @@
 base = "light"
 primaryColor = "#0f172a"
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f8f6f2"
+secondaryBackgroundColor = "#f9fafb"
 textColor = "#0f172a"
 linkColor = "#1d4ed8"
 borderColor = "#e2e8f0"
 showWidgetBorder = true
-baseRadius = "0.75rem"
+baseRadius = "0.375rem"
 chartCategoricalColors = ["#0f172a", "#047857", "#b91c1c", "#b45309", "#1d4ed8", "#7c3aed", "#64748b"]
 
 [theme.sidebar]
-backgroundColor = "#f8f6f2"
+backgroundColor = "#f9fafb"

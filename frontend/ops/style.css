@@ -1,27 +1,24 @@
 /* Ops Dashboard Fixed Stylesheet (DES-004 SCR-O01~O06)
- * Brand-aligned with customer web: Charcoal #0f172a, Sand #f8f6f2, Guardrail Emerald #047857.
- * Security: Strictly self-contained, no external fonts or CDN, no data injection.
+ * Plain operations-console look: neutral greys, thin borders, small radius, no decorative shadows.
+ * Security: strictly self-contained, no external fonts or CDN, no data injection (D-48).
  */
 
 :root {
-  --ops-ink: #0f172a;
-  --ops-ink-soft: #334155;
-  --ops-muted: #64748b;
-  --ops-line: #e2e8f0;
-  --ops-sand: #f8f6f2;
-  --ops-sand-card: #fdfbf7;
-  --ops-sand-dark: #ebe3d5;
-  --ops-gold: #c5a880;
+  --ops-ink: #111827;
+  --ops-ink-soft: #374151;
+  --ops-muted: #6b7280;
+  --ops-line: #e5e7eb;
+  --ops-line-strong: #d1d5db;
+  --ops-panel: #f9fafb;
+  --ops-accent: #1f2937;
 
   --ops-shield: #047857;
   --ops-danger: #b91c1c;
   --ops-warn: #b45309;
   --ops-info: #1d4ed8;
 
-  --ops-radius: 12px;
-  --ops-radius-sm: 8px;
-  --ops-shadow-sm: 0 2px 6px rgba(15, 23, 42, 0.04);
-  --ops-shadow-md: 0 4px 14px rgba(15, 23, 42, 0.06);
+  --ops-radius: 6px;
+  --ops-radius-sm: 4px;
 
   font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
@@ -30,67 +27,64 @@
 html, body {
   color: var(--ops-ink-soft);
   background: #ffffff;
-  -webkit-font-smoothing: antialiased;
 }
 
 h1, [data-testid="stHeading"] h1 {
-  font-size: 26px !important;
-  font-weight: 850 !important;
-  color: var(--ops-ink) !important;
-  letter-spacing: -0.03em !important;
-  margin-bottom: 8px !important;
-}
-
-h2, [data-testid="stHeading"] h2 {
-  font-size: 20px !important;
-  font-weight: 750 !important;
-  color: var(--ops-ink) !important;
-  letter-spacing: -0.02em !important;
-  margin-top: 18px !important;
-  margin-bottom: 8px !important;
-}
-
-h3, [data-testid="stHeading"] h3 {
-  font-size: 16px !important;
+  font-size: 22px !important;
   font-weight: 700 !important;
   color: var(--ops-ink) !important;
   letter-spacing: -0.01em !important;
+  margin-bottom: 6px !important;
 }
 
-/* ---------------------------------------------------------------- Sidebar Styling */
+h2, [data-testid="stHeading"] h2 {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: var(--ops-ink) !important;
+  margin-top: 14px !important;
+  margin-bottom: 6px !important;
+}
+
+h3, [data-testid="stHeading"] h3,
+h4, [data-testid="stHeading"] h4 {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: var(--ops-ink) !important;
+}
+
+/* ---------------------------------------------------------------- Sidebar: plain navigation list */
 section[data-testid="stSidebar"] {
-  background-color: var(--ops-sand) !important;
+  background-color: var(--ops-panel) !important;
   border-right: 1px solid var(--ops-line) !important;
-  box-shadow: inset -1px 0 0 rgba(15, 23, 42, 0.03);
 }
 
 section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
   padding-top: 1rem !important;
-  padding-left: 0.85rem !important;
-  padding-right: 0.85rem !important;
+  padding-left: 0.75rem !important;
+  padding-right: 0.75rem !important;
 }
 
 section[data-testid="stSidebar"] h3,
 section[data-testid="stSidebar"] [data-testid="stHeading"] h3 {
-  margin-top: 0.25rem !important;
-  margin-bottom: 0.2rem !important;
-  font-size: 17px !important;
-  font-weight: 850 !important;
+  margin: 0.25rem 0 0.1rem !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
 }
 
 section[data-testid="stSidebar"] .stCaption {
-  margin-bottom: 0.75rem !important;
+  margin-bottom: 0.6rem !important;
   font-size: 12px !important;
 }
 
 section[data-testid="stSidebar"] hr {
-  margin: 14px 0 !important;
+  margin: 12px 0 !important;
   border-color: var(--ops-line) !important;
 }
 
-/* Sidebar Radio Menu as Clean Rectangular Cards */
-section[data-testid="stSidebar"] [data-testid="stRadio"] {
-  gap: 0;
+section[data-testid="stSidebar"] [data-testid="stRadio"],
+section[data-testid="stSidebar"] [data-testid="stRadio"] > div,
+section[data-testid="stSidebar"] [data-testid="stElementContainer"]:has([data-testid="stRadio"]) {
   width: 100% !important;
 }
 
@@ -102,7 +96,7 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetL
 section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] {
   display: flex !important;
   flex-direction: column !important;
-  gap: 6px !important;
+  gap: 1px !important;
   width: 100% !important;
 }
 
@@ -110,18 +104,16 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] 
   display: flex !important;
   align-items: center !important;
   width: 100% !important;
-  background: #ffffff !important;
-  border: 1px solid var(--ops-line) !important;
-  border-radius: 8px !important;
-  padding: 9px 13px !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-left: 3px solid transparent !important;
+  border-radius: 0 !important;
+  padding: 7px 10px !important;
   margin: 0 !important;
   cursor: pointer !important;
-  transition: all 0.15s ease !important;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03) !important;
   box-sizing: border-box !important;
 }
 
-/* Hide Radio Dot Indicator cleanly */
 section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label input[type="radio"] {
   position: absolute !important;
   opacity: 0 !important;
@@ -135,142 +127,107 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] 
 }
 
 section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:hover {
-  border-color: #94a3b8 !important;
-  background: #f8fafc !important;
-  transform: translateX(2px) !important;
+  background: #eef0f3 !important;
 }
 
-/* Active / Checked Radio Item */
 section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) {
-  background: var(--ops-ink) !important;
-  border-color: var(--ops-ink) !important;
-  color: #ffffff !important;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.16) !important;
+  background: #e9ecf1 !important;
+  border-left-color: var(--ops-accent) !important;
 }
 
-section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p,
-section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) div,
-section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) span {
-  color: #ffffff !important;
-  font-weight: 750 !important;
+section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] label:has(input:checked) p {
+  color: var(--ops-ink) !important;
+  font-weight: 700 !important;
 }
 
-/* ---------------------------------------------------------------- Container Cards */
+/* ---------------------------------------------------------------- Panels (st.container(border=True)) */
 [data-testid="stVerticalBlockBorderWrapper"] > div {
   background: #ffffff;
   border: 1px solid var(--ops-line) !important;
   border-radius: var(--ops-radius) !important;
-  padding: 18px 20px !important;
-  box-shadow: var(--ops-shadow-sm);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  padding: 14px 16px !important;
 }
 
-[data-testid="stVerticalBlockBorderWrapper"] > div:hover {
-  border-color: #cbd5e1 !important;
-  box-shadow: var(--ops-shadow-md);
-}
-
-/* ---------------------------------------------------------------- Metrics Cards */
-[data-testid="stMetric"] {
-  background: #ffffff;
-  border-radius: var(--ops-radius);
-  padding: 4px 6px;
-}
-
+/* ---------------------------------------------------------------- Metrics */
 [data-testid="stMetricLabel"] {
   font-size: 12px !important;
-  font-weight: 750 !important;
+  font-weight: 600 !important;
   color: var(--ops-muted) !important;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 [data-testid="stMetricValue"] {
-  font-size: 28px !important;
-  font-weight: 850 !important;
+  font-size: 24px !important;
+  font-weight: 700 !important;
   color: var(--ops-ink) !important;
-  letter-spacing: -0.02em;
   line-height: 1.2 !important;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------------------------------------------------------------- Buttons */
 [data-testid="stButton"] button,
 [data-testid="stFormSubmitButton"] button,
 [data-testid="stDownloadButton"] button {
-  font-weight: 650 !important;
+  font-weight: 600 !important;
   border-radius: var(--ops-radius-sm) !important;
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid var(--ops-line-strong) !important;
   background: #ffffff !important;
   color: var(--ops-ink) !important;
-  padding: 7px 16px !important;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: all 0.15s ease !important;
-  letter-spacing: -0.01em;
+  padding: 5px 14px !important;
 }
 
 [data-testid="stButton"] button:hover,
 [data-testid="stFormSubmitButton"] button:hover,
 [data-testid="stDownloadButton"] button:hover {
-  border-color: var(--ops-ink) !important;
-  background: #f8fafc !important;
-  color: #000000 !important;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(15, 23, 42, 0.08);
+  border-color: var(--ops-ink-soft) !important;
+  background: var(--ops-panel) !important;
 }
 
 [data-testid="stButton"] button[kind="primary"],
 [data-testid="stFormSubmitButton"] button[kind="primary"] {
-  background: var(--ops-ink) !important;
-  border-color: var(--ops-ink) !important;
+  background: var(--ops-accent) !important;
+  border-color: var(--ops-accent) !important;
   color: #ffffff !important;
-  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.15);
 }
 
 [data-testid="stButton"] button[kind="primary"]:hover,
 [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
-  background: #1e293b !important;
-  border-color: #1e293b !important;
-  color: #ffffff !important;
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.2);
+  background: #374151 !important;
+  border-color: #374151 !important;
 }
 
 :focus-visible {
-  outline: 3px solid #2563eb !important;
-  outline-offset: 2px !important;
+  outline: 2px solid #2563eb !important;
+  outline-offset: 1px !important;
 }
 
-/* ---------------------------------------------------------------- Form Inputs & Selects */
+/* ---------------------------------------------------------------- Inputs */
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea,
 [data-testid="stSelectbox"] div[data-baseweb="select"] {
   border-radius: var(--ops-radius-sm) !important;
-  border: 1px solid #cbd5e1 !important;
+  border: 1px solid var(--ops-line-strong) !important;
   background: #ffffff !important;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 [data-testid="stTextInput"] input:focus,
 [data-testid="stTextArea"] textarea:focus {
-  border-color: var(--ops-ink) !important;
-  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08) !important;
+  border-color: var(--ops-ink-soft) !important;
 }
 
-/* ---------------------------------------------------------------- Alerts & Callouts */
+/* ---------------------------------------------------------------- Alerts */
 [data-testid="stAlert"] {
-  border-radius: var(--ops-radius) !important;
-  padding: 12px 18px !important;
-  box-shadow: var(--ops-shadow-sm);
+  border-radius: var(--ops-radius-sm) !important;
+  padding: 10px 14px !important;
   border-width: 1px !important;
 }
 
 /* ---------------------------------------------------------------- Tabs */
 [data-testid="stTabs"] button[role="tab"] {
-  font-weight: 650 !important;
-  font-size: 14.5px !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
   color: var(--ops-muted) !important;
-  border-bottom: 2.5px solid transparent !important;
-  padding: 8px 18px !important;
-  transition: all 0.15s ease;
+  border-bottom: 2px solid transparent !important;
+  padding: 6px 14px !important;
 }
 
 [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
@@ -278,7 +235,7 @@ section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] 
   border-bottom-color: var(--ops-ink) !important;
 }
 
-/* ---------------------------------------------------------------- DataFrames & Tables */
+/* ---------------------------------------------------------------- Tables */
 [data-testid="stDataFrame"] {
   border-radius: var(--ops-radius-sm);
   border: 1px solid var(--ops-line);

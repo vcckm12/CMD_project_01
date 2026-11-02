@@ -25,8 +25,8 @@ STYLE = Path(__file__).with_name("style.css").read_text("utf-8")
 KST = ZoneInfo("Asia/Seoul")
 STATUSES = ["success", "blocked", "masked", "confirmation_required", "error"]
 # Display name and color per audit status (shared by cards and charts).
-STATUS_STYLE = {"success": ("✅ 정상", "#047857"), "blocked": ("🛑 차단", "#b91c1c"), "masked": ("🔒 정화", "#b45309"),
-                "confirmation_required": ("⏳ 승인 대기", "#1d4ed8"), "error": ("⚠️ 오류", "#64748b")}  # fmt: skip
+STATUS_STYLE = {"success": ("정상", "#047857"), "blocked": ("차단", "#b91c1c"), "masked": ("가림", "#b45309"),
+                "confirmation_required": ("승인 대기", "#1d4ed8"), "error": ("오류", "#64748b")}  # fmt: skip
 OWASP_NAMES = {"LLM01:2025": "LLM01 프롬프트 인젝션", "LLM02:2025": "LLM02 민감정보 노출", "LLM05:2025": "LLM05 부적절한 출력",
                "LLM06:2025": "LLM06 과도한 권한", "LLM07:2025": "LLM07 시스템 프롬프트 유출",
                "LLM10:2025": "LLM10 무제한 자원 소비"}  # fmt: skip
@@ -109,6 +109,12 @@ def kst(iso: str | None) -> str:
 
 
 def fail(err: Exception) -> None:
+    if isinstance(err, ApiFailure) and err.status == 401 and err.code != "INVALID_CREDENTIALS":
+        # Session over (expired refresh, logged out elsewhere): back to the login page, not an error every 10 s.
+        client().logout_local()
+        st.session_state.clear()
+        st.session_state.login_notice = "로그인이 만료되었습니다. 다시 로그인해 주세요."
+        st.rerun(scope="app")
     st.error(str(err) if isinstance(err, ApiFailure) else "API에 연결하지 못했습니다.")
     if isinstance(err, ApiFailure) and err.details:
         st.code("\n".join(err.details))
@@ -133,8 +139,10 @@ def shown_errors():
 
 
 def login_page() -> None:
-    st.title("🛡️ AI 가드레일 관제")
+    st.title("AI 가드레일 관제")
     st.caption("관리망 전용 · 운영자/관리자 계정만 로그인할 수 있습니다. 계정은 내부 관리 명령으로 발급합니다.")
+    if notice := st.session_state.pop("login_notice", None):
+        st.info(notice)
     with st.form("login"):
         email = st.text_input("이메일")
         password = st.text_input("비밀번호", type="password")
@@ -152,6 +160,9 @@ def period_filter(key: str, max_days: int = 90) -> tuple[str, str]:
     c1, c2 = st.columns(2)
     start = c1.date_input("시작일 (KST)", today - timedelta(days=1), key=f"{key}-from")
     end = c2.date_input("종료일 (KST, 포함)", today, key=f"{key}-to")
+    if end < start:
+        st.warning("종료일이 시작일보다 앞서 있어 두 날짜를 바꿔서 조회합니다.")
+        start, end = end, start
     begin = datetime.combine(start, time.min, KST)
     finish = datetime.combine(end + timedelta(days=1), time.min, KST)
     if finish - begin > timedelta(days=max_days):
@@ -166,9 +177,9 @@ def alert_banner() -> None:
         return
     critical = [a for a in alerts if a["severity"] == "critical"]
     if critical:
-        st.error(f"🚨 미확인 critical 경보 {len(critical)}건: 경보 메뉴에서 확인하세요.")
+        st.error(f"미확인 critical 경보 {len(critical)}건 — 경보 메뉴에서 확인하세요.")
     elif alerts:
-        st.warning(f"⚠️ 미확인 경보 {len(alerts)}건")
+        st.warning(f"미확인 경보 {len(alerts)}건")
 
 
 # ---------------------------------------------------------------------- SCR-O02 dashboard
@@ -202,7 +213,7 @@ def dashboard() -> None:
     def live_stats() -> None:
         with shown_errors() as call:
             s = client().get("/api/v1/audit/stats", **{"from": start, "to": end, "session_id": session})
-            ready = client().request("GET", "/api/v1/health/ready")["data"]
+            ready = client().ready()
         if call.failed:
             return
         cols = st.columns(6)
@@ -252,7 +263,7 @@ def dashboard() -> None:
                                       "건수", colors, f"{sum(r['건수'] for r in inputs)}건", ["계층", "건수", "비율"],
                                       height=175, inner_radius=36, outer_radius=60, show_legend=False),
                                 use_container_width=True)  # fmt: skip
-                st.caption("범례: ⬛ **규칙만** · 🟪 **AI 판별만** · 🟩 **둘 다** · 🩶 **규칙만(AI 실패)**")
+                st.caption("범례: 규칙만(먹색) · AI 판별만(보라) · 둘 다(초록) · 규칙만 – AI 실패(회색)")
                 others = {name: sum(r["건수"] for r in rows if r["단계"] == name) for name in ("도구 결과", "출력")}
                 if any(others.values()):
                     st.caption("기타 단계 차단: " + " · ".join(f"{k} {v}건" for k, v in others.items()))
@@ -261,7 +272,7 @@ def dashboard() -> None:
         p95 = s["latency_p95_ms"]
         st.caption(f"서버 처리 시간 P95: {p95:.0f} ms (모델 생성 포함)" if p95 is not None else "서버 처리 시간: 데이터 없음")
         checks = ready["checks"]
-        st.caption("상태 점검: " + " · ".join(f"{'✅' if ok else '❌'} {name}" for name, ok in checks.items()))
+        st.caption("상태 점검: " + " · ".join(f"{name} {'정상' if ok else ':red[이상]'}" for name, ok in checks.items()))
 
     live_stats()
     st.subheader("이벤트")
@@ -329,7 +340,7 @@ def event_detail() -> None:
     meta["occurred_at (KST)"] = kst(e["occurred_at"])
     st.table(pd.Series(meta, name="값").astype(str))
     if e["session_id"]:
-        st.button("💬 이 대화의 다른 이벤트 보기", on_click=open_conversation, args=(e["session_id"],),
+        st.button("이 대화의 다른 이벤트 보기", on_click=open_conversation, args=(e["session_id"],),
                   help="대시보드에서 같은 대화(세션)의 요청을 시간순으로 봅니다. 여러 턴에 걸친 공격 추적에 씁니다.")  # fmt: skip
     st.write(f"input {e['input_ms']} ms · output {e['output_ms']} ms · total {e['total_ms']} ms")
     st.subheader("마스킹 요약")
@@ -353,7 +364,7 @@ def event_detail() -> None:
 LAYER_ORDER = [("input_rules", "입력 규칙"), ("input_judge", "입력 AI 판별"), ("tool_rules", "도구 결과 규칙"),
                ("tool_judge", "도구 결과 AI 판별"), ("model", "답변 생성(모델)"), ("output_rules", "출력 규칙"),
                ("output_judge", "출력 AI 판별")]  # fmt: skip
-VERDICTS = {"block": "🛑 차단", "pass": "✅ 통과", "error": "⚠️ 판별 실패"}
+VERDICTS = {"block": "차단", "pass": "통과", "error": "판별 실패"}
 STAGE_NAMES = {"input": "입력", "tool": "도구 결과", "output": "출력"}
 
 
@@ -379,7 +390,7 @@ def layer_breakdown(e: dict) -> None:
         r["비중"] = f"{r['ms'] / total * 100:.1f}%"
     table, chart = st.columns([3, 2])
     table.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    verdict_colors = {"🛑 차단": "#b91c1c", "✅ 통과": "#047857", "⚠️ 판별 실패": "#b45309", "—": "#94a3b8"}
+    verdict_colors = {"차단": "#b91c1c", "통과": "#047857", "판별 실패": "#b45309", "—": "#94a3b8"}
     frame = pd.DataFrame([
         {"계층": r["계층"], "판정": r["판정"].replace("— 미실행", "—"), "ms": r["ms"], "비중": r["비중"]}
         for r in rows if r["ms"] > 0
@@ -419,7 +430,7 @@ def lab_blocked_input(event_id: str, status: str) -> None:
         return
     for m in messages:
         role = m["role"]
-        st.caption(f"🛑 차단된 도구 결과 ({role[5:]}) — 간접 주입" if role.startswith("tool:") else role)
+        st.caption(f"차단된 도구 결과 ({role[5:]}) — 간접 주입" if role.startswith("tool:") else role)
         st.text(m["content"])  # plain text: never rendered as markdown/HTML
 
 
@@ -463,7 +474,7 @@ def alerts_page() -> None:
 
 def rules_page() -> None:
     st.header("규칙·정책")
-    st.info("🛡️ 가드레일 활성은 운영에서 변경할 수 없는 고정값입니다.")
+    st.info("가드레일 활성은 운영에서 변경할 수 없는 고정값입니다.")
     admin = client().user["role"] == "admin"
     with shown_errors() as call:
         listing = client().get("/api/v1/rulesets")
@@ -559,7 +570,7 @@ def report_page() -> None:
         st.markdown("**처리 결과 통계** (단위: 이벤트 수)")
         status_colors = {v[0]: v[1] for v in STATUS_STYLE.values()}
         status_rows = [
-            {"상태": STATUS_STYLE[k][0], "건수": counts.get(k, 0), "비율": f"{counts.get(k, 0) / total * 100:.1f}%" if total > 0 else "0.0%"}
+            {"상태": STATUS_STYLE[k][0], "건수": counts.get(k, 0), "비율": f"{counts.get(k, 0) / total * 100:.1f}%" if total > 0 else "0.0%"}  # noqa: E501
             for k in STATUSES if counts.get(k, 0) > 0
         ]
         if not status_rows:
@@ -583,7 +594,7 @@ def report_page() -> None:
         with c2:
             st.dataframe(
                 pd.DataFrame([
-                    {"상태": STATUS_STYLE[k][0], "건수": f"{counts.get(k, 0):,}건", "비율": f"{counts.get(k, 0) / total * 100:.1f}%" if total > 0 else "0.0%"}
+                    {"상태": STATUS_STYLE[k][0], "건수": f"{counts.get(k, 0):,}건", "비율": f"{counts.get(k, 0) / total * 100:.1f}%" if total > 0 else "0.0%"}  # noqa: E501
                     for k in STATUSES
                 ]),
                 hide_index=True,
@@ -702,11 +713,11 @@ def compare_view(run_id: str) -> None:
     st.text(r["input_text"])  # plain text: never rendered as markdown/HTML
     off, on = st.columns(2)
     with off.container(border=True):
-        st.markdown("#### :red[🔓 OFF (가드레일 없음)]")
+        st.markdown("#### :red[OFF (가드레일 없음)]")
         st.caption(f"노출: {exposed(r['off_exposure'])} · {r['off_ms']} ms")
         st.text(r["off_text"] if r["off_text"] is not None else "(모델 오류)")
     with on.container(border=True):
-        st.markdown("#### :green[🛡️ ON (규칙 + AI 판별)]")
+        st.markdown("#### :green[ON (규칙 + AI 판별)]")
         stage = f"/{r['on_stage']}" if r["on_stage"] else ""
         st.caption(f"{r['on_status']}{stage} · 막은 계층: {LAYERS.get(r['stopped_by'], r['stopped_by'])}"
                    f" · 노출: {exposed(r['on_exposure'])} · {r['on_ms']} ms")  # fmt: skip
@@ -720,7 +731,7 @@ def compare_view(run_id: str) -> None:
 
 
 def lab_page() -> None:
-    st.error("🧪 LAB 환경 — 합성 데이터·미끼 비밀 전용입니다. 운영 환경이 아닙니다.")
+    st.error("LAB 환경 — 합성 데이터·미끼 비밀 전용입니다. 운영 환경이 아닙니다.")
     single_compare()
     st.divider()
     st.header("시험셋 일괄 비교")
@@ -784,7 +795,7 @@ def decide(event_id: str, accept: bool) -> None:
 
 
 def suggestions_page() -> None:
-    st.error("🧪 LAB 환경 — 합성 데이터·미끼 비밀 전용입니다. 운영 환경이 아닙니다.")
+    st.error("LAB 환경 — 합성 데이터·미끼 비밀 전용입니다. 운영 환경이 아닙니다.")
     st.header("정규식 제안")
     st.caption("정규식은 통과했지만 AI 판별이 막은 LAB 입력(최근 7일)입니다. AI가 정규식을 제안하고 서버가 자동으로 "
                "검사합니다. YES를 누르면 **관찰 모드**(막지 않고 기록만)로 수집용 draft 룰셋에 추가됩니다. "
@@ -820,7 +831,7 @@ def suggestions_page() -> None:
             if s["explanation"]:
                 st.caption(f"설명: {s['explanation']} · 분류 {s['category']}")
             for key, label in CHECK_NAMES.items():
-                st.write(("✅ " if s["checks"].get(key) else "❌ ") + label)
+                st.write((":green[통과] " if s["checks"].get(key) else ":red[실패] ") + label)
             if s["benign_hits"]:
                 st.caption("걸리는 정상 질문: " + " / ".join(s["benign_hits"][:5]))
             if s["state"] == "pending":
@@ -833,7 +844,7 @@ def suggestions_page() -> None:
     watched_rules(data.get("watched", []))
 
 
-MODES = {"observe": "👁 관찰(기록만)", "block": "🛑 차단", None: "—"}
+MODES = {"observe": "관찰(기록만)", "block": "차단", None: "—"}
 
 
 def set_mode(rule_id: str, mode: str) -> None:
@@ -856,7 +867,7 @@ def watched_rules(watched: list[dict]) -> None:
             normal = [h for h in w["hits"] if h["status"] != "blocked"]
             st.write(f"최근 7일 {len(w['hits'])}건 걸림 · 그중 정상 질문 {len(normal)}건")
             for h in w["hits"][:10]:
-                label = "⚠️ 정상 질문인데 걸림(오탐 후보)" if h["status"] != "blocked" else "공격으로 차단된 요청"
+                label = "정상 질문인데 걸림(오탐 후보)" if h["status"] != "blocked" else "공격으로 차단된 요청"
                 st.caption(f"{kst(h['occurred_at'])} · {label}")
                 st.text(h["text"] or "(원문 없음: LAB API 재시작 전 기록)")
             block, remove, _ = st.columns([1, 1, 3])
@@ -876,15 +887,15 @@ if client().user is None:
     login_page()
 else:
     with st.sidebar:
-        st.markdown("### 🛡️ GUARDRAIL OPS")
+        st.markdown("### GUARDRAIL OPS")
         lab_env = client().user["role"] == "admin" and lab_available()  # the lab check is admin-only
-        st.caption(f"👤 {client().user['email']} ({client().user['role']})" + (" · 🧪 LAB" if lab_env else ""))
+        st.caption(f"{client().user['email']} · {client().user['role']}" + (" · LAB 환경" if lab_env else ""))
         if client().user["role"] == "admin" and lab_available():
             PAGES["LAB ON/OFF 비교"] = lab_page
             PAGES["정규식 제안"] = suggestions_page
         page = st.radio("메뉴", list(PAGES), label_visibility="collapsed", key="page")
         st.divider()
-        st.success("🛡️ 보안 보호 활성")
+        st.caption("가드레일: 서버에서 항상 적용")
         if st.button("모든 기기 로그아웃"):
             client().logout()
             st.session_state.clear()
