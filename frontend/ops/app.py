@@ -354,7 +354,11 @@ def event_detail() -> None:
         st.caption("없음")
     layer_breakdown(e)
     st.subheader("Tool 실행")
-    st.dataframe(pd.DataFrame(e["tool_executions"]), hide_index=True) if e["tool_executions"] else st.caption("없음")
+    # A bare conditional expression would be echoed by Streamlit "magic", so branch explicitly.
+    if e["tool_executions"]:
+        st.dataframe(pd.DataFrame(e["tool_executions"]), hide_index=True)
+    else:
+        st.caption("없음")
     if lab_available():
         lab_blocked_input(event_id, e["status"])
     else:
